@@ -1,0 +1,49 @@
+[package]
+name = "zerg-roundtable"
+version = "0.1.0"
+edition = "2021"
+description = "圆桌派——群 AI 讨论平台（zerg-cocoon 第一个茧）——Rust egui 集装箱"
+license = "MIT"
+
+[lib]
+name = "zerg_roundtable"
+path = "src/lib.rs"
+
+# 依赖按阶段启用（T1-2 锁定全量——UI 依赖 egui 到 T7 才引）
+[dependencies]
+# --- 异步 runtime（引擎）---
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
+
+# --- 数据层（T2）---
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+# --- 序列化 ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# --- AI 层（T3）---
+reqwest = { version = "0.12", features = ["json", "stream"] }
+reqwest-eventsource = "0.6"
+futures-util = "0.3"
+
+# --- 错误处理 ---
+thiserror = "1"
+regex = "1"
+async-trait = "0.1"
+
+# --- 日志 ---
+log = "0.4"
+env_logger = "0.11"
+fastembed = "6.0.2"
+
+# --- 嵌入（T5）---
+# fastembed = "5"   # T5-2 启用（ONNX——模型文件 90MB）
+
+# --- UI（T7 启用——egui/eframe 大依赖）---
+eframe = "0.36"
+egui = "0.36"
+# eframe = "0.29"    # T7-1 启用（旧注释）
+# egui = "0.29"
+
+[dev-dependencies]
+tempfile = "3"
