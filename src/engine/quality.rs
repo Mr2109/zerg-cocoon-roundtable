@@ -4,7 +4,7 @@
 //! 块锁定后调 quality_check → total<60(D 级) → 重跑 ≤2（T4-3b——设计意图完成）
 
 use crate::ai::AiMessage;
-use crate::engine::discussion::{user_msg, sys_msg};
+use crate::engine::discussion::{sys_msg, user_msg};
 use std::collections::HashMap;
 
 /// 质量评分结果
@@ -83,7 +83,11 @@ pub async fn quality_check(
   \"weaknesses\": [\"缺点1\", \"缺点2\"],
   \"improvement_suggestions\": \"如果你的评分低于 60 分（D级），请给出具体的改进方向，200字以内。\"
 }}",
-        if locked_context.is_empty() { "(无，这是第一个 Block)" } else { locked_context }
+        if locked_context.is_empty() {
+            "(无，这是第一个 Block)"
+        } else {
+            locked_context
+        }
     );
 
     let reply = ai
@@ -110,7 +114,7 @@ pub async fn quality_check(
         }
     }
     Ok(best.unwrap_or_else(|| {
-        eprintln!("[质量评分告警] block={block_name} AI 返回无法解析，使用默认 C 级 60 分。原始返回前200字: {}", &reply.content[..reply.content.len().min(200)]);
+        log::warn!("质量评分告警: block={block_name} AI 返回无法解析，使用默认 C 级 60 分。原始返回前200字: {}", &reply.content[..reply.content.len().min(200)]);
         default_result()
     }))
 }
@@ -133,19 +137,34 @@ fn parse_json_result(v: &serde_json::Value) -> Option<QualityResult> {
     let strengths = v
         .get("strengths")
         .and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let weaknesses = v
         .get("weaknesses")
         .and_then(|a| a.as_array())
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                .collect()
+        })
         .unwrap_or_default();
     let improvement = v
         .get("improvement_suggestions")
         .and_then(|s| s.as_str())
         .map(|s| s.to_string())
         .unwrap_or_default();
-    Some(QualityResult { scores, total, grade, strengths, weaknesses, improvement })
+    Some(QualityResult {
+        scores,
+        total,
+        grade,
+        strengths,
+        weaknesses,
+        improvement,
+    })
 }
 
 #[cfg(test)]
@@ -158,7 +177,9 @@ mod tests {
     async fn quality_parses_grade() {
         let mut fv = HashMap::new();
         fv.insert("故事核".into(), "少年穿越仙侠".into());
-        let script = vec![r#"{"scores":{"一致性":5,"完整性":4,"创意性":3,"可实现性":4},"total":82,"grade":"B","strengths":["创意好"],"weaknesses":["细节少"],"improvement_suggestions":"补充"}"#];
+        let script = vec![
+            r#"{"scores":{"一致性":5,"完整性":4,"创意性":3,"可实现性":4},"total":82,"grade":"B","strengths":["创意好"],"weaknesses":["细节少"],"improvement_suggestions":"补充"}"#,
+        ];
         let refs: Vec<&str> = script.iter().map(|s| *s).collect();
         let ai: BoxAi = Box::new(MockProvider::new(refs));
         let r = quality_check(&*ai, "故事核", &fv, "").await.unwrap();

@@ -58,6 +58,12 @@ pub struct RoundtableApp {
     pub embedded: bool,
     /// 面包屑请求位：宿主每帧 render 后检查——true 则 rt_active=false 退出回平台栅格
     pub exit_platform: bool,
+    /// 日志对话框开关（面包屑「📋 日志」——Mr2109 2026-09-04）
+    pub show_log_window: bool,
+    /// 日志对话框行缓存（异步加载——避免每帧查库）
+    pub log_rows: Vec<crate::db::crud::ErrorRow>,
+    /// 日志加载时间戳（防抖——打开时/手动刷新才拉）
+    pub log_loaded_at: std::time::Instant,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,9 +105,16 @@ impl RoundtableApp {
         let db = rt
             .block_on(Db::open(default_db_path()))
             .unwrap_or_else(|e| {
-                eprintln!("DB 打开失败: {e}");
+                eprintln!("DB 打开失败: {e}"); // 无 DB 无法运行——初始化失败 panic 合理（C 档保留）
                 std::process::exit(1);
             });
+        // 日志系统初始化（L1——DB 同目录 logs/——幂等——JSONL 15 天）
+        crate::logging::init(
+            &std::path::Path::new(&default_db_path())
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_default(),
+        );
         let mut app = RoundtableApp {
             db,
             rt,
@@ -120,6 +133,9 @@ impl RoundtableApp {
             _content_done: None,
             embedded: false,
             exit_platform: false,
+            show_log_window: false,
+            log_rows: Vec::new(),
+            log_loaded_at: std::time::Instant::now() - std::time::Duration::from_secs(3600),
         };
         app.reset_stale_running(); // 上轮进程残留 running→idle（断点可重开——2026-09-03）
         app.refresh_sessions();
@@ -137,8 +153,10 @@ impl RoundtableApp {
             Err(_) => return,
         };
         for (sid, blk) in sids {
-            let _ = self.rt.block_on(self.db.update_session_progress(&sid, blk, "idle"));
-            eprintln!("[zerg-ui] 残留 running 复位 idle: {} (block {})", sid, blk);
+            let _ = self
+                .rt
+                .block_on(self.db.update_session_progress(&sid, blk, "idle"));
+            log::info!("残留 running 复位 idle: {} (block {})", sid, blk);
         }
     }
 
@@ -157,9 +175,16 @@ impl RoundtableApp {
             self.err = Some("主题不能为空".into());
             return;
         }
-        let (nt, len, prov) = (self.novel_type.clone(), self.length.clone(), self.provider.clone());
+        let (nt, len, prov) = (
+            self.novel_type.clone(),
+            self.length.clone(),
+            self.provider.clone(),
+        );
         let id = format!("rt_{}", chrono_now());
-        let r = self.rt.block_on(self.db.create_session(&id, &topic, &nt, &len, &prov, "novel"));
+        let r = self.rt.block_on(
+            self.db
+                .create_session(&id, &topic, &nt, &len, &prov, "novel"),
+        );
         match r {
             Ok(()) => {
                 self.topic.clear();
@@ -183,83 +208,195 @@ impl RoundtableApp {
     /// 纯渲染（不依赖 eframe 壳——虫族 UI 集装箱直接调用嵌入）
     pub fn render(&mut self, ui: &mut egui::Ui) {
         self.exit_platform = false; // 每帧重置——面包屑点击时置 true——宿主本帧末读取
-        // 统一面包屑顶栏（三层收一层——2026-09-04）:
-        // 嵌入: ← 虫茧平台 | ← 圆桌派 | 会话标题（类型·字数·模型）| 📖章节 | 状态 | 停止/开始
-        // 独立: 圆桌派 | 会话列表 | 提示
+                                    // 统一面包屑顶栏（三层收一层——2026-09-04）:
+                                    // 嵌入: ← 虫茧平台 | ← 圆桌派 | 会话标题（类型·字数·模型）| 📖章节 | 状态 | 停止/开始
+                                    // 独立: 圆桌派 | 会话列表 | 提示
         let sess_info: Option<(String, String, String, String)> = match &self.view {
             View::Session(sid) | View::Chapter(sid) => self
                 .rt
                 .block_on(self.db.get_session(sid))
                 .ok()
                 .flatten()
-                .map(|s| (s.name.clone(), s.novel_type.clone(), s.length, s.provider.clone(), s.status.clone()))
+                .map(|s| {
+                    (
+                        s.name.clone(),
+                        s.novel_type.clone(),
+                        s.length,
+                        s.provider.clone(),
+                        s.status.clone(),
+                    )
+                })
                 .map(|(n, t, l, p, st)| (n, format!("{}·{}", t, p), l, st)),
             _ => None,
         };
-        egui::Panel::top("rt_top")
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if self.embedded {
-                        if ui.button("← 虫茧平台").clicked() {
-                            self.exit_platform = true;
-                        }
-                        ui.separator();
-                        if ui.button("← 圆桌派").clicked() {
-                            self.view = View::Home;
-                            self.refresh_sessions();
-                        }
-                    } else {
-                        ui.heading(RichText::new("圆桌派").color(Color32::from_rgb(200, 160, 60)));
-                        if ui.button("会话").clicked() {
-                            self.view = View::Home;
-                            self.refresh_sessions();
-                        }
+        egui::Panel::top("rt_top").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                if self.embedded {
+                    if ui.button("← 虫茧平台").clicked() {
+                        self.exit_platform = true;
                     }
                     ui.separator();
-                    // 会话级面包屑（Session/Chapter 视图——标题+元信息+状态+操作全在这一条）
-                    if let Some((name, meta, _len, status)) = &sess_info {
-                        let st_color = match status.as_str() {
-                            "completed" => Color32::from_rgb(110, 200, 120),
-                            "running" => Color32::from_rgb(220, 180, 90),
-                            _ => Color32::GRAY,
-                        };
-                        ui.heading(name.clone());
-                        ui.label(RichText::new(format!("（{}）", meta)).weak());
-                        ui.separator();
-                        // 视图相关跳转：Session→章节页；Chapter→返回会话
-                        match &self.view {
-                            View::Session(_) => {
-                                if ui.button("📖 章节").clicked() {
-                                    if let View::Session(sid) = self.view.clone() {
-                                        self.view = View::Chapter(sid);
-                                    }
-                                }
-                            }
-                            View::Chapter(_) => {
-                                if ui.button("← 返回会话").clicked() {
-                                    if let View::Chapter(sid) = self.view.clone() {
-                                        self.view = View::Session(sid);
-                                    }
-                                }
-                            }
-                            _ => {}
-                        }
-                        ui.separator();
-                        ui.label(RichText::new(format!("状态: {}", status_cn(status))).color(st_color));
-                        self.session_top_controls(ui, status);
-                    } else {
-                        ui.label(
-                            RichText::new("群 AI 讨论——小说生成只是它的一个项目")
-                                .weak()
-                                .small(),
-                        );
+                    if ui.button("← 圆桌派").clicked() {
+                        self.view = View::Home;
+                        self.refresh_sessions();
                     }
-                });
+                } else {
+                    ui.heading(RichText::new("圆桌派").color(Color32::from_rgb(200, 160, 60)));
+                    if ui.button("会话").clicked() {
+                        self.view = View::Home;
+                        self.refresh_sessions();
+                    }
+                }
+                ui.separator();
+                // 会话级面包屑（Session/Chapter 视图——标题+元信息+状态+操作全在这一条）
+                if let Some((name, meta, _len, status)) = &sess_info {
+                    let st_color = match status.as_str() {
+                        "completed" => Color32::from_rgb(110, 200, 120),
+                        "running" => Color32::from_rgb(220, 180, 90),
+                        _ => Color32::GRAY,
+                    };
+                    ui.heading(name.clone());
+                    ui.label(RichText::new(format!("（{}）", meta)).weak());
+                    ui.separator();
+                    // 视图相关跳转：Session→章节页；Chapter→返回会话
+                    match &self.view {
+                        View::Session(_) => {
+                            if ui.button("📖 章节").clicked() {
+                                if let View::Session(sid) = self.view.clone() {
+                                    self.view = View::Chapter(sid);
+                                }
+                            }
+                        }
+                        View::Chapter(_) => {
+                            if ui.button("← 返回会话").clicked() {
+                                if let View::Chapter(sid) = self.view.clone() {
+                                    self.view = View::Session(sid);
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    ui.separator();
+                    ui.label(RichText::new(format!("状态: {}", status_cn(status))).color(st_color));
+                    self.session_top_controls(ui, status);
+                } else {
+                    ui.label(
+                        RichText::new("群 AI 讨论——小说生成只是它的一个项目")
+                            .weak()
+                            .small(),
+                    );
+                }
+                ui.separator();
+                // 日志按钮（面包屑一级入口——Mr2109 2026-09-04——全局可见）
+                if ui.button("📋 日志").clicked() {
+                    self.show_log_window = !self.show_log_window;
+                    self.log_loaded_at =
+                        std::time::Instant::now() - std::time::Duration::from_secs(3600);
+                    // 触发重载
+                }
+                if self.embedded {
+                    ui.separator();
+                    ui.label(
+                        RichText::new("群 AI 讨论——小说生成只是它的一个项目")
+                            .weak()
+                            .small(),
+                    );
+                }
             });
+        });
+        // 视图主体
         match self.view.clone() {
             View::Home => self.home_view(ui),
             View::Session(sid) => crate::ui::session::session_view(self, ui, &sid),
             View::Chapter(sid) => crate::ui::chapter::chapter_view(self, ui, &sid),
+        }
+        // 日志对话框（独立 egui Window——不挤三栏——打开时/60s 防抖重载）
+        if self.show_log_window {
+            let reload = self.log_loaded_at.elapsed() > std::time::Duration::from_secs(60);
+            if reload {
+                self.log_loaded_at = std::time::Instant::now();
+                // 同步轻查询（200 行以内毫秒级——UI 卡顿可忽略；重查走 spawn_blocking 线程池）
+                let rows = self
+                    .rt
+                    .block_on(self.db.list_errors(None, 200))
+                    .unwrap_or_default();
+                self.log_rows = rows;
+            }
+            let mut open = self.show_log_window;
+            egui::Window::new("📋 报错与日志（最新 200 条 WARN/ERROR——保留 15 天）")
+                .open(&mut open)
+                .default_width(860.0)
+                .default_height(520.0)
+                .show(ui.ctx(), |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.button("🔄 刷新").clicked() {
+                            self.log_loaded_at =
+                                std::time::Instant::now() - std::time::Duration::from_secs(3600);
+                        }
+                        ui.weak(format!("{} 条", self.log_rows.len()));
+                    });
+                    ui.separator();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            if self.log_rows.is_empty() {
+                                ui.weak("（无 WARN/ERROR 记录——一切正常）");
+                            }
+                            egui::Grid::new("log_grid")
+                                .striped(true)
+                                .num_columns(5)
+                                .show(ui, |ui| {
+                                    for r in &self.log_rows {
+                                        let lv_color = if r.level == "ERROR" {
+                                            Color32::from_rgb(230, 110, 110)
+                                        } else {
+                                            Color32::from_rgb(230, 160, 90)
+                                        };
+                                        ui.label(RichText::new(&r.ts).weak().small());
+                                        ui.label(
+                                            RichText::new(&r.level)
+                                                .color(lv_color)
+                                                .strong()
+                                                .small(),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!("{} {}", r.kind, r.module))
+                                                .small(),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!(
+                                                "{}{}",
+                                                r.code.as_deref().unwrap_or("—"),
+                                                if r.sid.is_some() {
+                                                    format!(" sid={}", r.sid.as_deref().unwrap())
+                                                } else {
+                                                    String::new()
+                                                }
+                                            ))
+                                            .small(),
+                                        );
+                                        ui.label(RichText::new(&r.msg).size(12.0));
+                                        ui.end_row();
+                                        if let Some(d) = &r.detail {
+                                            if !d.is_empty() {
+                                                ui.label("");
+                                                ui.label("");
+                                                ui.label("");
+                                                ui.label("");
+                                                ui.label(
+                                                    RichText::new(d)
+                                                        .weak()
+                                                        .small()
+                                                        .text_style(egui::TextStyle::Monospace),
+                                                );
+                                                ui.end_row();
+                                            }
+                                        }
+                                    }
+                                });
+                        });
+                });
+            self.show_log_window = open;
         }
     }
 
@@ -270,7 +407,11 @@ impl RoundtableApp {
             _ => return,
         };
         // 引擎已退（停止/完成）——清理 runtime——按钮回"开始"
-        if self.runtimes.get(&sid).is_some_and(|r| r.done.load(Ordering::Relaxed)) {
+        if self
+            .runtimes
+            .get(&sid)
+            .is_some_and(|r| r.done.load(Ordering::Relaxed))
+        {
             self.runtimes.remove(&sid);
         }
         ui.separator();
@@ -307,11 +448,24 @@ impl RoundtableApp {
                         "running" => Color32::from_rgb(220, 180, 90),
                         _ => Color32::GRAY,
                     };
-                    let label = format!("{}  [{}·{}·{}]", s.name, s.novel_type, s.provider, crate::ui::status_cn(&s.status));
-                    if ui.selectable_label(false, RichText::new(label).color(status_color)).clicked() {
+                    let label = format!(
+                        "{}  [{}·{}·{}]",
+                        s.name,
+                        s.novel_type,
+                        s.provider,
+                        crate::ui::status_cn(&s.status)
+                    );
+                    if ui
+                        .selectable_label(false, RichText::new(label).color(status_color))
+                        .clicked()
+                    {
                         open = Some(s.id.clone());
                     }
-                    ui.label(RichText::new(format!("Block {}/13", s.current_block)).weak().small());
+                    ui.label(
+                        RichText::new(format!("Block {}/13", s.current_block))
+                            .weak()
+                            .small(),
+                    );
                     ui.add_space(2.0);
                 }
                 if let Some(sid) = open {
@@ -380,7 +534,10 @@ fn default_db_path() -> String {
 /// 时间戳（会话 ID——非加密）
 fn chrono_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let s = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     format!("{s:x}")
 }
 

@@ -104,7 +104,7 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(tables.len(), 12, "12 表——实际 {tables:?}");
+        assert_eq!(tables.len(), 13, "13 表（errors——L2）——实际 {tables:?}");
     }
 
     #[tokio::test]

@@ -214,7 +214,11 @@ mod tests {
             "token_usage",
             "world_settings",
         ];
-        assert_eq!(tables.len(), 12, "表数应为 12——实际: {tables:?}");
+        assert_eq!(
+            tables.len(),
+            13,
+            "表数应为 13（errors 表——L2）——实际: {tables:?}"
+        );
         for e in expect {
             assert!(tables.contains(&e.to_string()), "缺表: {e}");
         }

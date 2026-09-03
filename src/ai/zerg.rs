@@ -72,6 +72,7 @@ impl AiProvider for ZergProvider {
             payload["max_tokens"] = json!(max_tokens);
         }
         // 3 次重试（对齐 Web 版 attempt 3——timeout 递增由 reqwest 总超时覆盖）
+        let t0 = std::time::Instant::now();
         let mut last_err: Option<AiError> = None;
         for attempt in 0..3 {
             let mut req = self
@@ -87,19 +88,35 @@ impl AiProvider for ZergProvider {
                     let status = resp.status();
                     if !status.is_success() {
                         let body = resp.text().await.unwrap_or_default();
-                        let e = AiError::Api(format!("HTTP {}: {}", status, body.chars().take(200).collect::<String>()));
+                        let e = AiError::Api(format!(
+                            "HTTP {}: {}",
+                            status,
+                            body.chars().take(200).collect::<String>()
+                        ));
                         // 5xx/429 重试——4xx 不重试
                         if attempt < 2 && resp_is_retryable(&e) {
+                            log::warn!(
+                                "ai 重试 {}/2：{}（模型 {}）",
+                                attempt + 1,
+                                e,
+                                self.cfg.model
+                            );
                             last_err = Some(e);
-                            tokio::time::sleep(std::time::Duration::from_secs(2 + attempt * 2)).await;
+                            tokio::time::sleep(std::time::Duration::from_secs(2 + attempt * 2))
+                                .await;
                             continue;
                         }
+                        log::error!("ai 调用失败（不重试）：{}（模型 {}）", e, self.cfg.model);
                         return Err(e);
                     }
-                    let text = resp.text().await.map_err(|e| AiError::Http(e.to_string()))?;
+                    let text = resp
+                        .text()
+                        .await
+                        .map_err(|e| AiError::Http(e.to_string()))?;
                     let result: serde_json::Value =
                         serde_json::from_str(&text).map_err(|e| AiError::Parse(e.to_string()))?;
                     if let Some(err) = result.get("error") {
+                        log::error!("ai API 错误响应：{}（模型 {}）", err, self.cfg.model);
                         return Err(AiError::Api(err.to_string()));
                     }
                     let usage = &result["usage"];
@@ -117,12 +134,25 @@ impl AiProvider for ZergProvider {
                     if content.is_empty() {
                         // 重试一轮（空回复）
                         if attempt < 2 {
+                            log::warn!(
+                                "ai 空回复，重试 {}/2（模型 {}）",
+                                attempt + 1,
+                                self.cfg.model
+                            );
                             last_err = Some(AiError::Empty);
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                             continue;
                         }
+                        log::error!("ai 空回复（重试耗尽）（模型 {}）", self.cfg.model);
                         return Err(AiError::Empty);
                     }
+                    log::info!(
+                        "ai 调用成功：模型 {} prompt={} completion={} 耗时 {}ms",
+                        self.cfg.model,
+                        prompt,
+                        completion,
+                        t0.elapsed().as_millis()
+                    );
                     return Ok(AiReply {
                         content,
                         prompt_tokens: prompt,
@@ -131,11 +161,19 @@ impl AiProvider for ZergProvider {
                 }
                 Err(e) => {
                     let ae = AiError::Http(e.to_string());
-                    last_err = Some(ae);
                     if attempt < 2 {
+                        log::warn!(
+                            "ai 网络错误，重试 {}/2：{}（模型 {}）",
+                            attempt + 1,
+                            ae,
+                            self.cfg.model
+                        );
+                        last_err = Some(ae);
                         tokio::time::sleep(std::time::Duration::from_secs(2 + attempt * 2)).await;
                         continue;
                     }
+                    log::error!("ai 网络错误（重试耗尽）：{}（模型 {}）", ae, self.cfg.model);
+                    last_err = Some(ae);
                 }
             }
         }
@@ -167,10 +205,17 @@ pub fn clean_content(raw: &str, reasoning: &str) -> String {
     }
     // ② 思考不闭合/混英文——从首个中文密集段开始
     if !content.is_empty() {
-        let paras: Vec<&str> = content.split('\n').map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+        let paras: Vec<&str> = content
+            .split('\n')
+            .map(|p| p.trim())
+            .filter(|p| !p.is_empty())
+            .collect();
         let mut start = -1i32;
         for (i, p) in paras.iter().enumerate() {
-            let cn: usize = p.chars().filter(|c| *c as u32 >= 0x4e00 && *c as u32 <= 0x9fff).count();
+            let cn: usize = p
+                .chars()
+                .filter(|c| *c as u32 >= 0x4e00 && *c as u32 <= 0x9fff)
+                .count();
             let no_ws: usize = p.chars().filter(|c| !c.is_whitespace()).count();
             if no_ws > 0 && (cn as f64 / no_ws as f64) >= 0.4 && cn >= 6 {
                 start = i as i32;
@@ -197,14 +242,54 @@ fn extract_from_reasoning(reasoning: &str) -> String {
         return last.to_string();
     }
     // 无中文——取最后一句合理行（尾部规则精简版）
-    let lines: Vec<&str> = reasoning.split('\n').map(|l| l.trim()).filter(|l| l.len() > 3).collect();
+    let lines: Vec<&str> = reasoning
+        .split('\n')
+        .map(|l| l.trim())
+        .filter(|l| l.len() > 3)
+        .collect();
     for l in lines.iter().rev() {
         let bad_prefixes = [
-            "Here", "1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "0.", "- ", "**",
-            "I need", "Let me", "The user", "This is", "Then ", "First ", "Finally", "Output:",
-            "Input:", "Analyze", "Identify", "Formulate", "Verify", "Refine", "Check", "Execute",
-            "Example", "Simpler", "Constraint", "Response:", "Think", "So,", "Therefore", "Thus",
-            "In summary", "Based on", "Given that", "Note that",
+            "Here",
+            "1.",
+            "2.",
+            "3.",
+            "4.",
+            "5.",
+            "6.",
+            "7.",
+            "8.",
+            "9.",
+            "0.",
+            "- ",
+            "**",
+            "I need",
+            "Let me",
+            "The user",
+            "This is",
+            "Then ",
+            "First ",
+            "Finally",
+            "Output:",
+            "Input:",
+            "Analyze",
+            "Identify",
+            "Formulate",
+            "Verify",
+            "Refine",
+            "Check",
+            "Execute",
+            "Example",
+            "Simpler",
+            "Constraint",
+            "Response:",
+            "Think",
+            "So,",
+            "Therefore",
+            "Thus",
+            "In summary",
+            "Based on",
+            "Given that",
+            "Note that",
         ];
         if !bad_prefixes.iter().any(|b| l.starts_with(b)) {
             let out = l.to_string();
@@ -248,10 +333,16 @@ mod tests {
         let p = ZergProvider::from_env();
         assert!(!p.cfg.token.is_empty(), "需 YZ_GATEWAY_TOKEN");
         let reply = p
-            .chat(&[AiMessage { role: "user".into(), content: "用一句话回答：1+1=？".into() }], 200)
+            .chat(
+                &[AiMessage {
+                    role: "user".into(),
+                    content: "用一句话回答：1+1=？".into(),
+                }],
+                200,
+            )
             .await
             .expect("网关调用成功");
-        println!("真调回复: {}", reply.content);
+        log::info!("真调回复: {}", reply.content);
         assert!(!reply.content.is_empty());
     }
 }

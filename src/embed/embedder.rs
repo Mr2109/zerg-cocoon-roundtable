@@ -41,14 +41,19 @@ pub fn init() -> Result<(), String> {
         return Ok(());
     }
     let cache = std::env::var("FASTEMBED_CACHE_DIR").unwrap_or_else(|_| {
-        std::env::var("HOME").map(|h| format!("{h}/.cache/huggingface/hub")).unwrap_or_else(|_| ".fastembed_cache".into())
+        std::env::var("HOME")
+            .map(|h| format!("{h}/.cache/huggingface/hub"))
+            .unwrap_or_else(|_| ".fastembed_cache".into())
     });
     let opts = fastembed::InitOptionsWithLength::new(fastembed::EmbeddingModel::BGESmallZHV15)
         .with_cache_dir(std::path::PathBuf::from(cache))
         .with_show_download_progress(false)
         .with_intra_threads(2);
-    let model = fastembed::TextEmbedding::try_new(opts).map_err(|e| format!("fastembed 初始化失败: {e}"))?;
-    *guard = Some(EmbedderState { model: Box::new(FastEmbedModel { inner: model }) });
+    let model = fastembed::TextEmbedding::try_new(opts)
+        .map_err(|e| format!("fastembed 初始化失败: {e}"))?;
+    *guard = Some(EmbedderState {
+        model: Box::new(FastEmbedModel { inner: model }),
+    });
     Ok(())
 }
 
@@ -104,7 +109,7 @@ mod tests {
         match init() {
             Ok(()) => {}
             Err(e) => {
-                eprintln!("[跳过] fastembed 不可用: {e}");
+                log::warn!("fastembed 不可用: {e}——跳过");
                 return;
             }
         }
@@ -112,7 +117,10 @@ mod tests {
         assert_eq!(v[0].len(), 512, "bge-small-zh 512 维");
         let sim_same = similarity("主角穿越到修仙世界", "少年穿越异界踏上修行之路").unwrap();
         let sim_diff = similarity("主角穿越到修仙世界", "今天天气很好适合散步").unwrap();
-        assert!(sim_same > sim_diff, "相似句相关度应更高——same {sim_same} diff {sim_diff}");
+        assert!(
+            sim_same > sim_diff,
+            "相似句相关度应更高——same {sim_same} diff {sim_diff}"
+        );
         reset();
     }
 }

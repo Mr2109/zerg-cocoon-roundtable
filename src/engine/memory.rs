@@ -8,7 +8,10 @@ use crate::embed::embedder;
 /// 构建记忆上下文（设定库 30 条 + 角色状态 20 条——注入正文 prompt）
 pub async fn build_memory_context(db: &Db, sid: &str) -> Result<String, String> {
     let mut parts = Vec::new();
-    let settings = db.get_world_settings(sid, None, 30).await.map_err(|e| e.to_string())?;
+    let settings = db
+        .get_world_settings(sid, None, 30)
+        .await
+        .map_err(|e| e.to_string())?;
     if !settings.is_empty() {
         let lines: Vec<String> = settings
             .iter()
@@ -26,7 +29,10 @@ pub async fn build_memory_context(db: &Db, sid: &str) -> Result<String, String> 
             parts.push(format!("【已锁定设定库】\n{}", lines.join("\n")));
         }
     }
-    let chars = db.get_character_states(sid, 20).await.map_err(|e| e.to_string())?;
+    let chars = db
+        .get_character_states(sid, 20)
+        .await
+        .map_err(|e| e.to_string())?;
     if !chars.is_empty() {
         let clines: Vec<String> = chars
             .iter()
@@ -47,9 +53,17 @@ pub async fn build_memory_context(db: &Db, sid: &str) -> Result<String, String> 
 }
 
 /// 从正文更新角色状态（Web 启发式：设定库已知名 + 正文高频段——兜底主角 5）
-pub async fn update_character_states(db: &Db, sid: &str, text: &str, chapter_number: i64) -> Result<usize, String> {
+pub async fn update_character_states(
+    db: &Db,
+    sid: &str,
+    text: &str,
+    chapter_number: i64,
+) -> Result<usize, String> {
     let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let chars_setting = db.get_world_settings(sid, Some("character"), 50).await.map_err(|e| e.to_string())?;
+    let chars_setting = db
+        .get_world_settings(sid, Some("character"), 50)
+        .await
+        .map_err(|e| e.to_string())?;
     for s in &chars_setting {
         let val = s.value.clone().unwrap_or_default();
         for seg in split_segments(&val) {
@@ -84,28 +98,52 @@ pub async fn update_character_states(db: &Db, sid: &str, text: &str, chapter_num
         active = known.iter().take(5).cloned().collect();
     }
     for name in &active {
-        db.upsert_character_state(sid, name, "最近章节出现", chapter_number).await.map_err(|e| e.to_string())?;
+        db.upsert_character_state(sid, name, "最近章节出现", chapter_number)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(active.len())
 }
 
 /// 章节正文向量化入库（段落级——返回段数）
-pub async fn embed_chapter(db: &Db, sid: &str, chapter_id: i64, text: &str) -> Result<usize, String> {
-    let paragraphs: Vec<String> = text.split("\n\n").map(|p| p.trim().to_string()).filter(|p| !p.is_empty()).collect();
+pub async fn embed_chapter(
+    db: &Db,
+    sid: &str,
+    chapter_id: i64,
+    text: &str,
+) -> Result<usize, String> {
+    let paragraphs: Vec<String> = text
+        .split("\n\n")
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
     if paragraphs.is_empty() {
         return Ok(0);
     }
-    db.clear_chapter_embeddings(chapter_id).await.map_err(|e| e.to_string())?;
+    db.clear_chapter_embeddings(chapter_id)
+        .await
+        .map_err(|e| e.to_string())?;
     let vecs = embedder::embed(&paragraphs)?;
     for (i, (para, vec)) in paragraphs.iter().zip(vecs.iter()).enumerate() {
-        db.save_chunk_embedding(sid, chapter_id, i as i64, vec, para).await.map_err(|e| e.to_string())?;
+        db.save_chunk_embedding(sid, chapter_id, i as i64, vec, para)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(vecs.len())
 }
 
 /// 语义检索（query 嵌入 → 全库余弦 top-k > 0.35——排除章节可选）
-pub async fn retrieve_relevant(db: &Db, sid: &str, query: &str, exclude_chapter_id: Option<i64>, k: usize) -> Result<Vec<String>, String> {
-    let all = db.get_all_embeddings(sid, exclude_chapter_id).await.map_err(|e| e.to_string())?;
+pub async fn retrieve_relevant(
+    db: &Db,
+    sid: &str,
+    query: &str,
+    exclude_chapter_id: Option<i64>,
+    k: usize,
+) -> Result<Vec<String>, String> {
+    let all = db
+        .get_all_embeddings(sid, exclude_chapter_id)
+        .await
+        .map_err(|e| e.to_string())?;
     if all.is_empty() {
         return Ok(Vec::new());
     }
@@ -120,7 +158,12 @@ pub async fn retrieve_relevant(db: &Db, sid: &str, query: &str, exclude_chapter_
         .map(|(ev, text)| (embedder::cosine(&qv, ev.as_slice()), text))
         .collect();
     scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(scored.into_iter().take(k).filter(|(s, _)| *s > 0.35).map(|(_, t)| t).collect())
+    Ok(scored
+        .into_iter()
+        .take(k)
+        .filter(|(s, _)| *s > 0.35)
+        .map(|(_, t)| t)
+        .collect())
 }
 
 /// 按标点/空白切出连续文本段（中文角色名候选——避免 regex 字符类转义）
@@ -154,10 +197,18 @@ mod tests {
     use crate::db::pool::Db;
 
     async fn setup(sid: &str, db: &Db) {
-        db.create_session(sid, "记忆测试", "玄幻", "长篇", "zerg", "novel").await.unwrap();
-        db.upsert_world_setting(sid, "character", "主角", "少年林风 穿越者").await.unwrap();
-        db.upsert_world_setting(sid, "world", "大陆", "九州大陆灵气复苏").await.unwrap();
-        db.upsert_character_state(sid, "林风", "境界筑基初期", 1).await.unwrap();
+        db.create_session(sid, "记忆测试", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
+        db.upsert_world_setting(sid, "character", "主角", "少年林风 穿越者")
+            .await
+            .unwrap();
+        db.upsert_world_setting(sid, "world", "大陆", "九州大陆灵气复苏")
+            .await
+            .unwrap();
+        db.upsert_character_state(sid, "林风", "境界筑基初期", 1)
+            .await
+            .unwrap();
     }
 
     /// 记忆上下文含设定库+角色状态
@@ -182,7 +233,13 @@ mod tests {
         let n = update_character_states(&db, "m2", text, 2).await.unwrap();
         assert!(n >= 1, "至少更新 1 角色");
         let states = db.get_character_states("m2", 20).await.unwrap();
-        assert!(states.iter().any(|c| c.character_name.contains("林风") && c.last_seen_chapter >= 2), "主角状态已更新——实际 {:?}", states.iter().map(|c| &c.character_name).collect::<Vec<_>>());
+        assert!(
+            states
+                .iter()
+                .any(|c| c.character_name.contains("林风") && c.last_seen_chapter >= 2),
+            "主角状态已更新——实际 {:?}",
+            states.iter().map(|c| &c.character_name).collect::<Vec<_>>()
+        );
         std::fs::remove_file("/tmp/yz_mem2.db").ok();
     }
 
@@ -192,18 +249,24 @@ mod tests {
         match crate::embed::embedder::init() {
             Ok(()) => {}
             Err(e) => {
-                eprintln!("[跳过] fastembed 不可用: {e}");
+                log::warn!("fastembed 不可用: {e}——跳过");
                 return;
             }
         }
         let _ = std::fs::remove_file("/tmp/yz_mem3.db");
         let db = Db::open("/tmp/yz_mem3.db").await.unwrap();
-        db.create_session("m3", "记忆检索", "玄幻", "长篇", "zerg", "novel").await.unwrap();
-        db.create_chapter("m3", 1, 1, "测试章", "大纲").await.unwrap();
+        db.create_session("m3", "记忆检索", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
+        db.create_chapter("m3", 1, 1, "测试章", "大纲")
+            .await
+            .unwrap();
         let ch = &db.get_chapters("m3").await.unwrap()[0];
         let body1 = "少年林风踏入秘境，灵气浓郁，妖兽低吼。";
         embed_chapter(&db, "m3", ch.id, body1).await.unwrap();
-        let rel = retrieve_relevant(&db, "m3", "秘境里有什么危险", None, 3).await.unwrap();
+        let rel = retrieve_relevant(&db, "m3", "秘境里有什么危险", None, 3)
+            .await
+            .unwrap();
         assert!(!rel.is_empty(), "应检索到相关片段");
         let v = db.get_all_embeddings("m3", None).await.unwrap();
         assert_eq!(v.len(), 1);
