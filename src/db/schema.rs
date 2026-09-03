@@ -165,6 +165,19 @@ CREATE TABLE IF NOT EXISTS review_feedback (
 );
 CREATE INDEX IF NOT EXISTS idx_reviews_chapter ON chapter_reviews(chapter_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_session ON review_feedback(session_id);
+CREATE TABLE IF NOT EXISTS errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    level TEXT NOT NULL,
+    module TEXT NOT NULL,
+    sid TEXT,
+    block TEXT,
+    kind TEXT NOT NULL,
+    code TEXT,
+    msg TEXT NOT NULL,
+    detail TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_errors_sid ON errors(sid);
 "#;
 
 /// 初始化数据库（建表）
@@ -190,8 +203,16 @@ mod tests {
             .collect::<Result<_, _>>()
             .unwrap();
         let expect = [
-            "chapters", "character_state", "content_chunks", "content_embeddings",
-            "discussions", "messages", "sessions", "templates", "token_usage", "world_settings",
+            "chapters",
+            "character_state",
+            "content_chunks",
+            "content_embeddings",
+            "discussions",
+            "messages",
+            "sessions",
+            "templates",
+            "token_usage",
+            "world_settings",
         ];
         assert_eq!(tables.len(), 12, "表数应为 12——实际: {tables:?}");
         for e in expect {
@@ -205,6 +226,9 @@ mod tests {
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap();
-        assert!(cols.contains(&"project_type".to_string()), "缺 project_type");
+        assert!(
+            cols.contains(&"project_type".to_string()),
+            "缺 project_type"
+        );
     }
 }

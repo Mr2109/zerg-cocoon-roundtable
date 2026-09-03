@@ -42,7 +42,9 @@ impl Db {
     pub async fn get_session(&self, id: &str) -> DbResult<Option<Session>> {
         let id = id.to_string();
         self.query(move |c| {
-            let mut stmt = c.prepare(&format!("SELECT {SESSION_COLS} FROM sessions WHERE id = ?1"))?;
+            let mut stmt = c.prepare(&format!(
+                "SELECT {SESSION_COLS} FROM sessions WHERE id = ?1"
+            ))?;
             let mut rows = stmt.query_map(params![id], Session::from_row)?;
             Ok(rows.next().transpose()?)
         })
@@ -51,15 +53,21 @@ impl Db {
 
     pub async fn get_all_sessions(&self) -> DbResult<Vec<Session>> {
         self.query(move |c| {
-            let mut stmt =
-                c.prepare(&format!("SELECT {SESSION_COLS} FROM sessions ORDER BY created_at DESC"))?;
+            let mut stmt = c.prepare(&format!(
+                "SELECT {SESSION_COLS} FROM sessions ORDER BY created_at DESC"
+            ))?;
             let rows = stmt.query_map([], Session::from_row)?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?)
         })
         .await
     }
 
-    pub async fn update_session_progress(&self, id: &str, current_block: i64, status: &str) -> DbResult<()> {
+    pub async fn update_session_progress(
+        &self,
+        id: &str,
+        current_block: i64,
+        status: &str,
+    ) -> DbResult<()> {
         let id = id.to_string();
         let status = status.to_string();
         self.call(move |c| {
@@ -72,7 +80,12 @@ impl Db {
         .await
     }
 
-    pub async fn update_session_tokens(&self, id: &str, prompt: i64, completion: i64) -> DbResult<()> {
+    pub async fn update_session_tokens(
+        &self,
+        id: &str,
+        prompt: i64,
+        completion: i64,
+    ) -> DbResult<()> {
         let id = id.to_string();
         self.call(move |c| {
             c.execute(
@@ -177,7 +190,11 @@ impl Db {
         .await
     }
 
-    pub async fn get_templates(&self, sid: &str, block_index: Option<i64>) -> DbResult<Vec<Template>> {
+    pub async fn get_templates(
+        &self,
+        sid: &str,
+        block_index: Option<i64>,
+    ) -> DbResult<Vec<Template>> {
         let sid = sid.to_string();
         self.query(move |c| {
             let (sql, rows) = match block_index {
@@ -232,7 +249,13 @@ impl Db {
     }
 
     // ─── world_settings ───
-    pub async fn upsert_world_setting(&self, sid: &str, setting_type: &str, key: &str, value: &str) -> DbResult<()> {
+    pub async fn upsert_world_setting(
+        &self,
+        sid: &str,
+        setting_type: &str,
+        key: &str,
+        value: &str,
+    ) -> DbResult<()> {
         if key.is_empty() || value.is_empty() {
             return Ok(());
         }
@@ -255,7 +278,12 @@ impl Db {
         .await
     }
 
-    pub async fn get_world_settings(&self, sid: &str, setting_type: Option<&str>, limit: i64) -> DbResult<Vec<WorldSetting>> {
+    pub async fn get_world_settings(
+        &self,
+        sid: &str,
+        setting_type: Option<&str>,
+        limit: i64,
+    ) -> DbResult<Vec<WorldSetting>> {
         let sid = sid.to_string();
         let st = setting_type.map(|s| s.to_string());
         self.query(move |c| {
@@ -309,7 +337,11 @@ impl Db {
         .await
     }
 
-    pub async fn get_character_states(&self, sid: &str, limit: i64) -> DbResult<Vec<CharacterState>> {
+    pub async fn get_character_states(
+        &self,
+        sid: &str,
+        limit: i64,
+    ) -> DbResult<Vec<CharacterState>> {
         let sid = sid.to_string();
         self.query(move |c| {
             let mut stmt = c.prepare(
@@ -322,7 +354,13 @@ impl Db {
     }
 
     // ─── token_usage ───
-    pub async fn add_token_usage(&self, sid: &str, block_name: &str, prompt: i64, completion: i64) -> DbResult<()> {
+    pub async fn add_token_usage(
+        &self,
+        sid: &str,
+        block_name: &str,
+        prompt: i64,
+        completion: i64,
+    ) -> DbResult<()> {
         let (sid, bn) = (sid.to_string(), block_name.to_string());
         self.call(move |c| {
             c.execute(
@@ -356,10 +394,16 @@ impl Db {
         .await
     }
 
-
     // ─── 章节（T5-1）───
 
-    pub async fn create_chapter(&self, sid: &str, volume: i64, chapter_number: i64, title: &str, outline: &str) -> DbResult<()> {
+    pub async fn create_chapter(
+        &self,
+        sid: &str,
+        volume: i64,
+        chapter_number: i64,
+        title: &str,
+        outline: &str,
+    ) -> DbResult<()> {
         let sid = sid.to_string();
         let title = title.to_string();
         let outline = outline.to_string();
@@ -373,7 +417,12 @@ impl Db {
         .await
     }
 
-    pub async fn update_chapter_content(&self, sid: &str, chapter_id: i64, content: &str) -> DbResult<()> {
+    pub async fn update_chapter_content(
+        &self,
+        sid: &str,
+        chapter_id: i64,
+        content: &str,
+    ) -> DbResult<()> {
         let sid = sid.to_string();
         let content = content.to_string();
         self.query(move |c| {
@@ -398,7 +447,10 @@ impl Db {
         .await
     }
 
-    pub async fn get_content_chunks(&self, chapter_id: i64) -> DbResult<Vec<crate::db::models::ContentChunk>> {
+    pub async fn get_content_chunks(
+        &self,
+        chapter_id: i64,
+    ) -> DbResult<Vec<crate::db::models::ContentChunk>> {
         self.query(move |c| {
             let mut stmt = c.prepare(
                 "SELECT id, chapter_id, paragraph_index, text, created_at FROM content_chunks WHERE chapter_id = ?1 ORDER BY paragraph_index",
@@ -411,13 +463,21 @@ impl Db {
 
     pub async fn clear_content_chunks(&self, chapter_id: i64) -> DbResult<()> {
         self.query(move |c| {
-            c.execute("DELETE FROM content_chunks WHERE chapter_id = ?1", params![chapter_id])?;
+            c.execute(
+                "DELETE FROM content_chunks WHERE chapter_id = ?1",
+                params![chapter_id],
+            )?;
             Ok(())
         })
         .await
     }
 
-    pub async fn add_content_chunk(&self, chapter_id: i64, paragraph_index: i64, text: &str) -> DbResult<()> {
+    pub async fn add_content_chunk(
+        &self,
+        chapter_id: i64,
+        paragraph_index: i64,
+        text: &str,
+    ) -> DbResult<()> {
         let text = text.to_string();
         self.query(move |c| {
             c.execute(
@@ -429,11 +489,17 @@ impl Db {
         .await
     }
 
-
     // ─── 向量记忆（T5-2）───
 
     /// 保存段落嵌入（f32 向量 → BLOB 小端字节）
-    pub async fn save_chunk_embedding(&self, sid: &str, chapter_id: i64, chunk_index: i64, embedding: &[f32], text: &str) -> DbResult<()> {
+    pub async fn save_chunk_embedding(
+        &self,
+        sid: &str,
+        chapter_id: i64,
+        chunk_index: i64,
+        embedding: &[f32],
+        text: &str,
+    ) -> DbResult<()> {
         let sid = sid.to_string();
         let text = text.to_string();
         let mut bytes = Vec::with_capacity(embedding.len() * 4);
@@ -452,14 +518,21 @@ impl Db {
 
     pub async fn clear_chapter_embeddings(&self, chapter_id: i64) -> DbResult<()> {
         self.query(move |c| {
-            c.execute("DELETE FROM content_embeddings WHERE chapter_id = ?1", params![chapter_id])?;
+            c.execute(
+                "DELETE FROM content_embeddings WHERE chapter_id = ?1",
+                params![chapter_id],
+            )?;
             Ok(())
         })
         .await
     }
 
     /// 全量嵌入（检索——内存余弦——排除章节可选）
-    pub async fn get_all_embeddings(&self, sid: &str, exclude_chapter_id: Option<i64>) -> DbResult<Vec<(Vec<f32>, String)>> {
+    pub async fn get_all_embeddings(
+        &self,
+        sid: &str,
+        exclude_chapter_id: Option<i64>,
+    ) -> DbResult<Vec<(Vec<f32>, String)>> {
         let sid = sid.to_string();
         self.query(move |c| {
             let mut rows = Vec::new();
@@ -488,21 +561,35 @@ impl Db {
         .await
     }
 
-
     // ─── 评审（T6）───
 
     /// 章节正文全文（chunks 拼接）
     pub async fn get_chapter_content_text(&self, chapter_id: i64) -> DbResult<String> {
         self.query(move |c| {
-            let mut stmt = c.prepare("SELECT text FROM content_chunks WHERE chapter_id = ?1 ORDER BY paragraph_index")?;
+            let mut stmt = c.prepare(
+                "SELECT text FROM content_chunks WHERE chapter_id = ?1 ORDER BY paragraph_index",
+            )?;
             let rows = stmt.query_map(params![chapter_id], |r| r.get::<_, String>(0))?;
             Ok(rows.collect::<Result<Vec<_>, _>>()?.join("\n\n"))
         })
         .await
     }
 
-    pub async fn add_review(&self, chapter_id: i64, pipeline: &str, severity: &str, location: i64, issue: &str, suggestion: &str) -> DbResult<()> {
-        let (pipeline, severity, issue, suggestion) = (pipeline.to_string(), severity.to_string(), issue.to_string(), suggestion.to_string());
+    pub async fn add_review(
+        &self,
+        chapter_id: i64,
+        pipeline: &str,
+        severity: &str,
+        location: i64,
+        issue: &str,
+        suggestion: &str,
+    ) -> DbResult<()> {
+        let (pipeline, severity, issue, suggestion) = (
+            pipeline.to_string(),
+            severity.to_string(),
+            issue.to_string(),
+            suggestion.to_string(),
+        );
         self.query(move |c| {
             c.execute(
                 "INSERT INTO chapter_reviews (chapter_id, pipeline, severity, location, issue, suggestion) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -515,14 +602,31 @@ impl Db {
 
     pub async fn clear_chapter_reviews(&self, chapter_id: i64) -> DbResult<()> {
         self.query(move |c| {
-            c.execute("DELETE FROM chapter_reviews WHERE chapter_id = ?1", params![chapter_id])?;
+            c.execute(
+                "DELETE FROM chapter_reviews WHERE chapter_id = ?1",
+                params![chapter_id],
+            )?;
             Ok(())
         })
         .await
     }
 
-    pub async fn add_review_feedback(&self, sid: &str, chapter_id: i64, issue_type: &str, severity: &str, issue: &str, suggestion: &str) -> DbResult<i64> {
-        let (sid, issue_type, severity, issue, suggestion) = (sid.to_string(), issue_type.to_string(), severity.to_string(), issue.to_string(), suggestion.to_string());
+    pub async fn add_review_feedback(
+        &self,
+        sid: &str,
+        chapter_id: i64,
+        issue_type: &str,
+        severity: &str,
+        issue: &str,
+        suggestion: &str,
+    ) -> DbResult<i64> {
+        let (sid, issue_type, severity, issue, suggestion) = (
+            sid.to_string(),
+            issue_type.to_string(),
+            severity.to_string(),
+            issue.to_string(),
+            suggestion.to_string(),
+        );
         self.query(move |c| {
             c.execute(
                 "INSERT INTO review_feedback (session_id, chapter_id, issue_type, severity, issue, suggestion) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -535,14 +639,22 @@ impl Db {
 
     pub async fn clear_review_feedback(&self, chapter_id: i64) -> DbResult<()> {
         self.query(move |c| {
-            c.execute("DELETE FROM review_feedback WHERE chapter_id = ?1", params![chapter_id])?;
+            c.execute(
+                "DELETE FROM review_feedback WHERE chapter_id = ?1",
+                params![chapter_id],
+            )?;
             Ok(())
         })
         .await
     }
 
     /// 既往审查结论（rewritten 状态——教训注入）
-    pub async fn get_review_feedback(&self, sid: &str, status: &str, limit: i64) -> DbResult<Vec<(String, String, String)>> {
+    pub async fn get_review_feedback(
+        &self,
+        sid: &str,
+        status: &str,
+        limit: i64,
+    ) -> DbResult<Vec<(String, String, String)>> {
         let (sid, status) = (sid.to_string(), status.to_string());
         self.query(move |c| {
             let mut stmt = c.prepare(
@@ -566,9 +678,11 @@ impl Db {
         .await
     }
 
-
     /// 章节评审结果（chapter_reviews——pipeline/severity/issue）
-    pub async fn get_chapter_reviews(&self, chapter_id: i64) -> DbResult<Vec<(String, String, String, i64)>> {
+    pub async fn get_chapter_reviews(
+        &self,
+        chapter_id: i64,
+    ) -> DbResult<Vec<(String, String, String, i64)>> {
         self.query(move |c| {
             let mut stmt = c.prepare("SELECT pipeline, severity, issue, location FROM chapter_reviews WHERE chapter_id = ?1 ORDER BY rowid")?;
             let rows = stmt.query_map(params![chapter_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?)))?;
@@ -577,6 +691,79 @@ impl Db {
         .await
     }
 
+    // ── errors 表（L2——日志/报错体系 2026-09-04——WARN/ERROR 镜像入库）──
+
+    /// 写入错误记录（logger 写线程调用——非 async 上下文用 spawn_blocking）
+    pub fn insert_error_sync(
+        &self,
+        ts: &str,
+        level: &str,
+        module: &str,
+        sid: Option<&str>,
+        block: Option<&str>,
+        kind: &str,
+        code: Option<&str>,
+        msg: &str,
+        detail: Option<&str>,
+    ) {
+        let (ts, level, module, sid, block, kind, code, msg, detail) = (
+            ts.to_string(),
+            level.to_string(),
+            module.to_string(),
+            sid.map(|s| s.to_string()),
+            block.map(|s| s.to_string()),
+            kind.to_string(),
+            code.map(|s| s.to_string()),
+            msg.to_string(),
+            detail.map(|s| s.to_string()),
+        );
+        let _ = self.call_sync(move |c| {
+            c.execute(
+                "INSERT INTO errors (ts, level, module, sid, block, kind, code, msg, detail) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![ts, level, module, sid, block, kind, code, msg, detail],
+            )?;
+            Ok(())
+        });
+    }
+
+    /// 错误列表（UI 日志对话框——最新在前——limit 200）
+    pub async fn list_errors(&self, sid: Option<&str>, limit: i64) -> DbResult<Vec<ErrorRow>> {
+        let (sid, limit) = (sid.map(|s| s.to_string()), limit);
+        self.query(move |c| {
+            let mut stmt = c.prepare(
+                "SELECT ts, level, module, sid, block, kind, code, msg, detail FROM errors WHERE (?1 IS NULL OR sid = ?1) ORDER BY id DESC LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![sid, limit], |r| {
+                Ok(ErrorRow {
+                    ts: r.get(0)?,
+                    level: r.get(1)?,
+                    module: r.get(2)?,
+                    sid: r.get(3)?,
+                    block: r.get(4)?,
+                    kind: r.get(5)?,
+                    code: r.get(6)?,
+                    msg: r.get(7)?,
+                    detail: r.get(8)?,
+                })
+            })?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        })
+        .await
+    }
+}
+
+/// 错误行（UI 日志对话框行数据）
+#[derive(Debug, Clone)]
+pub struct ErrorRow {
+    pub ts: String,
+    pub level: String,
+    pub module: String,
+    pub sid: Option<String>,
+    pub block: Option<String>,
+    pub kind: String,
+    pub code: Option<String>,
+    pub msg: String,
+    pub detail: Option<String>,
 }
 
 #[cfg(test)]
@@ -588,7 +775,12 @@ mod tests {
         let p = dir.path().join("t.db");
         let p = p.to_str().unwrap().to_string();
         // 保留 tempdir 存活：直接开在系统临时
-        Db::open(std::path::PathBuf::from(format!("/tmp/yz_crud_test_{}.db", std::process::id()))).await.unwrap()
+        Db::open(std::path::PathBuf::from(format!(
+            "/tmp/yz_crud_test_{}.db",
+            std::process::id()
+        )))
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
@@ -596,13 +788,17 @@ mod tests {
         let db = Db::open("/tmp/yz_crud_1.db").await.unwrap();
         let _ = std::fs::remove_file("/tmp/yz_crud_1.db");
         let db = Db::open("/tmp/yz_crud_1.db").await.unwrap();
-        db.create_session("s1", "测试项目", "玄幻", "长篇", "zerg-ornith", "novel").await.unwrap();
+        db.create_session("s1", "测试项目", "玄幻", "长篇", "zerg-ornith", "novel")
+            .await
+            .unwrap();
         let s = db.get_session("s1").await.unwrap().expect("会话存在");
         assert_eq!(s.novel_type, "玄幻");
         assert_eq!(s.length, "长篇");
         assert_eq!(s.project_type, "novel");
         assert_eq!(s.current_block, 0);
-        db.update_session_progress("s1", 3, "running").await.unwrap();
+        db.update_session_progress("s1", 3, "running")
+            .await
+            .unwrap();
         let s2 = db.get_session("s1").await.unwrap().unwrap();
         assert_eq!(s2.current_block, 3);
         let all = db.get_all_sessions().await.unwrap();
@@ -613,16 +809,25 @@ mod tests {
     #[tokio::test]
     async fn message_and_template_flow() {
         let db = Db::open("/tmp/yz_crud_2.db").await.unwrap();
-        db.create_session("s2", "", "都市", "中篇", "zerg-ornith", "novel").await.unwrap();
+        db.create_session("s2", "", "都市", "中篇", "zerg-ornith", "novel")
+            .await
+            .unwrap();
         // 消息
-        let mid = db.add_message("s2", "司世", "世界设定草稿", "author", "").await.unwrap();
+        let mid = db
+            .add_message("s2", "司世", "世界设定草稿", "author", "")
+            .await
+            .unwrap();
         assert!(mid > 0);
         let msgs = db.get_messages("s2", 0).await.unwrap();
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].sender, "司世");
         // 模板 upsert + 锁
-        db.upsert_template("s2", 0, "世界观", "仙侠大陆", false, "Block0").await.unwrap();
-        db.upsert_template("s2", 0, "世界观", "仙侠大陆·灵气复苏", true, "Block0").await.unwrap();
+        db.upsert_template("s2", 0, "世界观", "仙侠大陆", false, "Block0")
+            .await
+            .unwrap();
+        db.upsert_template("s2", 0, "世界观", "仙侠大陆·灵气复苏", true, "Block0")
+            .await
+            .unwrap();
         let locked = db.get_locked_field_values("s2").await.unwrap();
         assert_eq!(locked.len(), 1);
         assert_eq!(locked[0].1, "仙侠大陆·灵气复苏");
@@ -633,13 +838,21 @@ mod tests {
     #[tokio::test]
     async fn world_character_tokens() {
         let db = Db::open("/tmp/yz_crud_3.db").await.unwrap();
-        db.create_session("s3", "", "", "", "zerg-ornith", "novel").await.unwrap();
-        db.upsert_world_setting("s3", "地理", "大陆", "九州").await.unwrap();
-        db.upsert_world_setting("s3", "地理", "大陆", "十州").await.unwrap(); // 覆盖
+        db.create_session("s3", "", "", "", "zerg-ornith", "novel")
+            .await
+            .unwrap();
+        db.upsert_world_setting("s3", "地理", "大陆", "九州")
+            .await
+            .unwrap();
+        db.upsert_world_setting("s3", "地理", "大陆", "十州")
+            .await
+            .unwrap(); // 覆盖
         let ws = db.get_world_settings("s3", Some("地理"), 10).await.unwrap();
         assert_eq!(ws.len(), 1);
         assert_eq!(ws[0].value.as_deref(), Some("十州"));
-        db.upsert_character_state("s3", "黎渊", r#"{"hp":100}"#, 3).await.unwrap();
+        db.upsert_character_state("s3", "黎渊", r#"{"hp":100}"#, 3)
+            .await
+            .unwrap();
         let cs = db.get_character_states("s3", 10).await.unwrap();
         assert_eq!(cs.len(), 1);
         assert_eq!(cs[0].last_seen_chapter, 3);
@@ -647,5 +860,39 @@ mod tests {
         std::fs::remove_file("/tmp/yz_crud_3.db").ok();
     }
 
-
+    #[tokio::test]
+    async fn errors_roundtrip() {
+        let db = Db::open(format!("/tmp/yz_crud_err_{}.db", std::process::id()))
+            .await
+            .unwrap();
+        db.insert_error_sync(
+            "2026-09-04T02:00:00+08:00",
+            "WARN",
+            "engine::run",
+            Some("rt_test1"),
+            Some("核心冲突"),
+            "env",
+            Some("E102"),
+            "AI 重试 2/3：HTTP 429",
+            None,
+        );
+        db.insert_error_sync(
+            "2026-09-04T02:01:00+08:00",
+            "ERROR",
+            "ui::session",
+            None,
+            None,
+            "bug",
+            Some("B101"),
+            "状态机非法迁移",
+            Some("detail: idle→locked"),
+        );
+        let all = db.list_errors(None, 200).await.unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].code.as_deref(), Some("B101")); // 最新在前
+        let one = db.list_errors(Some("rt_test1"), 200).await.unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].kind, "env");
+        std::fs::remove_file(format!("/tmp/yz_crud_err_{}.db", std::process::id())).ok();
+    }
 }

@@ -11,6 +11,9 @@ path = "src/lib.rs"
 
 # 依赖按阶段启用（T1-2 锁定全量——UI 依赖 egui 到 T7 才引）
 [dependencies]
+# --- 时间（日志时间戳/15 天清理——2026-09-04）---
+chrono = "0.4"
+
 # --- 异步 runtime（引擎）---
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs"] }
 

@@ -69,6 +69,17 @@ impl Db {
         .await
         .map_err(DbError::from)?
     }
+
+    /// 同步执行（仅供专职写线程——logger 落库——无 runtime 上下文；阻塞当前线程直到完成）
+    pub fn call_sync<T, F>(&self, f: F) -> DbResult<T>
+    where
+        F: FnOnce(&mut Connection) -> rusqlite::Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let inner = Arc::clone(&self.inner);
+        let mut conn = inner.lock().map_err(|e| DbError::Poison(e.to_string()))?;
+        f(&mut conn).map_err(DbError::from)
+    }
 }
 
 #[cfg(test)]
@@ -118,13 +129,23 @@ mod tests {
             h.await.unwrap();
         }
         let n: i64 = db
-            .query(|c| Ok(c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap()))
+            .query(|c| {
+                Ok(
+                    c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+                        .unwrap(),
+                )
+            })
             .await
             .unwrap();
         assert_eq!(n, 10, "10 并发写全部成功");
         // 锁不长期占用——再次调用立即可进
         let again: i64 = db
-            .query(|c| Ok(c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0)).unwrap()))
+            .query(|c| {
+                Ok(
+                    c.query_row("SELECT COUNT(*) FROM sessions", [], |r| r.get(0))
+                        .unwrap(),
+                )
+            })
             .await
             .unwrap();
         assert_eq!(again, 10);
