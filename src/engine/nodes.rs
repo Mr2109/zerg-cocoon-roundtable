@@ -150,7 +150,50 @@ impl RtFlowNode for GateNode {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<NodeOutcome, String>> + Send + 'a>>
     {
         Box::pin(async move {
-            // desc 结构化语法（替换后解析）：`<值> 包含 <关键词>` / `<值> 非空` / 其他=无条件通过
+            // B3: human_gate=every_step/key_points 且无人工裁决记录 → 暂停挂起（awaiting_human）
+            // 暂停=落库进度+状态 awaiting_human——UI 确认卡（B3 UI）答复后置回 idle 续跑
+            if block.human_gate != "none" {
+                let decided = ctx
+                    .db
+                    .get_flow_var(&ctx.state.sid, &format!("n{}", block.index), "人工裁决")
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if decided.is_none() {
+                    // 无裁决——挂起：会话状态 awaiting_human（断点续跑机制天然接管——重启后仍挂起直到人答复）
+                    ctx.db
+                        .update_session_progress(
+                            &ctx.state.sid,
+                            block.index as i64,
+                            "awaiting_human",
+                        )
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    // 引导消息（讨论流可见——人知道要确认什么）
+                    let ask = crate::engine::discussion::substitute_vars(&block.desc, &ctx.vars);
+                    crate::engine::discussion::log_confirm_request(
+                        ctx.db,
+                        &ctx.state.sid,
+                        block,
+                        &ask,
+                    )
+                    .await?;
+                    return Ok(NodeOutcome {
+                        locked: false,
+                        reason: "awaiting_human（等待人工确认——UI 确认卡答复后继续）".into(),
+                        produced: Vec::new(),
+                    });
+                }
+                // 有裁决——按裁决走（通过/驳回）
+                let verdict = decided.unwrap();
+                let pass = verdict == "通过";
+                log::info!("gate 节点 {}: 人工裁决={verdict}", block.name);
+                return Ok(NodeOutcome {
+                    locked: pass,
+                    reason: format!("人工裁决: {verdict}"),
+                    produced: vec![(format!("n{}.判定", block.index), verdict.clone())],
+                });
+            }
+            // 自动判定路径（B1 原逻辑——human_gate=none）
             let cond = crate::engine::discussion::substitute_vars(&block.desc, &ctx.vars);
             let (pass, detail) = if let Some((lhs, kw)) = cond.split_once(" 包含 ") {
                 let kw = kw.trim();
@@ -181,6 +224,112 @@ impl RtFlowNode for GateNode {
                 produced: vec![(format!("{node_id}.判定"), verdict.into())],
             })
         })
+    }
+}
+
+// ── tool 节点（B3——HTTP GET/本地脚本最小集——产出写变量池）──
+
+pub struct ToolNode;
+
+impl RtFlowNode for ToolNode {
+    fn kind(&self) -> &'static str {
+        "tool"
+    }
+    fn execute<'a>(
+        &'a self,
+        ctx: &'a mut NodeCtx<'a>,
+        block: &'a Block,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<NodeOutcome, String>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            // desc 语法：`http <变量替换后的完整URL>` 或 `sh <变量替换后的脚本>`（首行决定形态）
+            let spec = crate::engine::discussion::substitute_vars(&block.desc, &ctx.vars);
+            let node_id = format!("n{}", block.index);
+            let output = if let Some(url) = spec.strip_prefix("http ") {
+                // HTTP GET（reqwest——超时 30s——限 64KB——no_proxy 直连对齐 zerg.rs 踩坑）
+                http_get_text(url.trim())
+                    .await
+                    .map_err(|e| format!("tool http 失败: {e}"))?
+            } else if let Some(script) = spec.strip_prefix("sh ") {
+                // 本地脚本（bash -c——30s 超时——spawn_blocking 防 async 阻塞——stdout 截 64KB）
+                let script = script.trim().to_string();
+                let out = tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    tokio::task::spawn_blocking(move || {
+                        std::process::Command::new("bash")
+                            .arg("-c")
+                            .arg(&script)
+                            .output()
+                    }),
+                )
+                .await
+                .map_err(|_| "tool sh 超时 30s".to_string())?
+                .map_err(|e| format!("tool sh 启动失败: {e}"))?
+                .map_err(|e| format!("tool sh 执行失败: {e}"))?
+                .pipe_result()
+                .map_err(|e| format!("tool sh 失败: {e}"))?;
+                out
+            } else {
+                return Err(format!(
+                    "tool 节点 {} desc 语法非法——需以 'http ' 或 'sh ' 开头",
+                    block.name
+                ));
+            };
+            // 产出写变量池（单字段全文）
+            let f = block
+                .fields
+                .first()
+                .ok_or_else(|| format!("tool 节点 {} 需至少 1 个 field 承载输出", block.name))?;
+            let truncated: String = output.chars().take(65536).collect();
+            ctx.db
+                .set_flow_var(&ctx.state.sid, &node_id, f, &truncated)
+                .await
+                .map_err(|e| e.to_string())?;
+            log::info!(
+                "tool 节点 {}: 完成——输出 {} 字符",
+                block.name,
+                truncated.chars().count()
+            );
+            Ok(NodeOutcome {
+                locked: true,
+                reason: "tool 完成".into(),
+                produced: vec![(format!("{node_id}.{f}"), truncated)],
+            })
+        })
+    }
+}
+
+/// HTTP GET 文本（限 64KB/30s——no_proxy 直连——对齐 ai/zerg.rs 踩坑）
+async fn http_get_text(url: &str) -> Result<String, String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .no_proxy()
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client.get(url).send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {status}"));
+    }
+    let text = resp.text().await.map_err(|e| e.to_string())?;
+    Ok(text.chars().take(65536).collect())
+}
+
+/// tokio Command output → stdout 字符串（stderr 失败时入错误）
+trait PipeResult {
+    fn pipe_result(self) -> Result<String, String>;
+}
+impl PipeResult for std::process::Output {
+    fn pipe_result(self) -> Result<String, String> {
+        if !self.status.success() {
+            let err = String::from_utf8_lossy(&self.stderr);
+            return Err(format!(
+                "exit {:?}: {}",
+                self.status.code(),
+                err.chars().take(200).collect::<String>()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&self.stdout).to_string())
     }
 }
 

@@ -95,6 +95,7 @@ pub(crate) fn status_cn(st: &str) -> String {
         "idle" => "待开始".into(),
         "failed" => "失败".into(),
         "stopped" => "已停止".into(),
+        "awaiting_human" => "待确认".into(),
         _ => st.to_string(),
     }
 }
@@ -430,10 +431,22 @@ impl RoundtableApp {
             self.runtimes.remove(&sid);
         }
         ui.separator();
-        // 按会话 DB 状态判断（running 中显示停止）
+        // 按会话 DB 状态判断（running 中显示停止；awaiting_human 显示确认卡）
         if status == "running" {
             if ui.button("停止").clicked() {
                 self.stop_discussion(&sid);
+            }
+        } else if status == "awaiting_human" {
+            // B3: 确认卡——批准/驳回（写 flow_vars 人工裁决 + 状态回 idle 引擎可续跑）
+            ui.colored_label(
+                Color32::from_rgb(230, 180, 90),
+                RichText::new("⏸ 等待人工确认"),
+            );
+            if ui.button("✅ 批准").clicked() {
+                self.human_decide(&sid, "通过");
+            }
+            if ui.button("❌ 驳回").clicked() {
+                self.human_decide(&sid, "驳回");
             }
         } else {
             crate::ui::ai_warn(ui);
@@ -441,6 +454,25 @@ impl RoundtableApp {
                 self.start_discussion(&sid);
             }
         }
+    }
+
+    /// B3: 人工裁决落变量池 + 会话状态回 idle（引擎续跑时 gate 读裁决走对应分支）
+    fn human_decide(&mut self, sid: &str, verdict: &str) {
+        // 当前挂起的节点=会话 current_block
+        let (node_idx,) = match self.rt.block_on(self.db.get_session(sid)) {
+            Ok(Some(s)) => (s.current_block,),
+            _ => return,
+        };
+        let node_id = format!("n{node_idx}");
+        let v = verdict.to_string();
+        let db = self.db.clone();
+        let sid2 = sid.to_string();
+        let nid2 = node_id.clone();
+        self.rt.block_on(async move {
+            let _ = db.set_flow_var(&sid2, &nid2, "人工裁决", &v).await;
+            let _ = db.update_session_progress(&sid2, node_idx, "idle").await;
+        });
+        log::info!("人工裁决: 会话 {sid} 节点 {node_id} → {verdict}");
     }
 }
 

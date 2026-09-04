@@ -482,6 +482,21 @@ fn fmt_flat(fs: &[String], vv: &HashMap<String, String>) -> String {
         .join(" | ")
 }
 
+/// B3: 确认请求落讨论流（系统消息——人知道 gate 在等什么）
+pub async fn log_confirm_request(
+    db: &Db,
+    sid: &str,
+    block: &crate::templates::Block,
+    ask: &str,
+) -> Result<(), String> {
+    let content = if ask.trim().is_empty() {
+        format!("⏸ 等待人工确认：{}", block.name)
+    } else {
+        format!("⏸ 等待人工确认：{}——{}", block.name, ask)
+    };
+    add_msg(db, sid, "系统", &content, "system", &block.name, 0).await
+}
+
 fn draft_prompt(fs: &[String], bn: &str) -> String {
     let field_lines: Vec<String> = fs.iter().map(|f| format!("{f}:[值]")).collect();
     format!(

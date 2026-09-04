@@ -49,10 +49,12 @@
 - 环保底双保险（loader 拒环 + 推进步数超限终止）
 - 验收：✅ 60 测试全过——novel 等价性三专测（完整跑/断点续跑/门禁重跑）原样通过 + next 跳转专测
 
-### B3 ⬜ tool 节点（HTTP+脚本最小集）+ gate human_confirm
-- tool: HTTP 请求/本地脚本执行——参数模板+输出写变量池；dispatch 形态留位（虫族派单）
-- human_confirm: 暂停=落库 awaiting_human+复位；恢复=确认后续跑；确认卡 UI
-- 验收：mock HTTP 测试 + 人为造确认点手工过
+### B3 ✅ tool 节点（HTTP+脚本最小集）+ gate human_confirm（2026-09-04）
+- ToolNode: desc 语法 `http <URL>` / `sh <脚本>`——变量替换后执行——30s 超时/64KB 截断/spawn_blocking——产出写变量池；dispatch 形态（虫族派单）留位
+- gate human_confirm: human_gate≠none 且无裁决→挂起（状态 awaiting_human+确认请求落讨论流）——UI 确认卡（✅批准/❌驳回）写 flow_vars 人工裁决+状态回 idle——引擎续跑按裁决走
+- 优雅退出：挂起时 RunSummary completed=false（不完成不失败——awaiting_human 天然接入断点续跑）
+- status_cn 加「待确认」
+- 验收：✅ 61 测试全过——human_confirm 挂起→裁决→续跑端到端 + tool 节点编译验收（sh/http 实际执行留 B4 合同流实测）
 
 ### B4 ⬜ 合同审查任务流实证（Mr2109拍板）
 - templates/contract.flow.json：4 角色团（司衡/司约/司账/司权）+ 6 节点（抽取→四维审查→争议辩论→人核→修改建议→报告）

@@ -167,7 +167,6 @@ mod tests {
 
     #[test]
     fn next_declaration_reorders() {
-        // B2: next 声明跳转——run_discussion 推进逻辑单测（不走 AI——纯顺序验证）
         // 构造：3 块，n0.next=["n2"]——从 n0 跑完应跳到 n2（跳过 n1）——用 run 的推进公式直接验
         let flow = r##"{
             "id": "skip", "name": "跳转", "version": 1, "inputs": [],
@@ -193,5 +192,72 @@ mod tests {
             .iter()
             .position(|b| blk.next[0] == format!("n{}", b.index) || blk.next[0] == b.name);
         assert_eq!(next_idx, Some(2), "n0.next=n2 应解析到索引 2——跳过 n1");
+    }
+
+    #[tokio::test]
+    async fn human_confirm_pauses_then_resumes() {
+        // B3 端到端：human_gate=every_step 的 gate——首次执行挂起（awaiting_human）→人工裁决→gate 按裁决出
+        use crate::templates::Block;
+        let _ = std::fs::remove_file("/tmp/yz_flow3c.db");
+        let db = Db::open("/tmp/yz_flow3c.db").await.unwrap();
+        db.create_session("f3c", "测试确认", "都市", "短篇", "zerg", "demo3")
+            .await
+            .unwrap();
+        let mut state = DiscussionState::new("f3c", "测试确认", "都市", "短篇", "zerg");
+        let ai = mock_ai(vec![]);
+        let ai_ref: &dyn AiProvider = ai.as_ref();
+        let blk = Block {
+            index: 2,
+            name: "终审".into(),
+            fields: vec![],
+            fm: String::new(),
+            kind: "gate".into(),
+            desc: "请确认方案".into(),
+            next: vec![],
+            human_gate: "every_step".into(), // 关键：非 none
+            model: String::new(),
+        };
+        let mut vars = std::collections::HashMap::new();
+        // 首次：无裁决——应挂起
+        {
+            let mut ctx = NodeCtx {
+                db: &db,
+                ai: ai_ref,
+                state: &mut state,
+                vars: vars.clone(),
+            };
+            let out = GateNode.execute(&mut ctx, &blk).await.unwrap();
+            assert!(!out.locked, "无裁决应挂起");
+            assert!(out.reason.contains("awaiting_human"));
+        }
+        let s = db.get_session("f3c").await.unwrap().unwrap();
+        assert_eq!(s.status, "awaiting_human", "会话状态应置 awaiting_human");
+        // 人工批准（模拟 UI human_decide）
+        db.set_flow_var("f3c", "n2", "人工裁决", "通过")
+            .await
+            .unwrap();
+        db.update_session_progress("f3c", 2, "idle").await.unwrap();
+        vars.insert("n2.人工裁决".to_string(), "通过".to_string());
+        // 续跑：有裁决——应通过
+        let mut state2 = DiscussionState::new("f3c", "测试确认", "都市", "短篇", "zerg");
+        {
+            let mut ctx = NodeCtx {
+                db: &db,
+                ai: ai_ref,
+                state: &mut state2,
+                vars,
+            };
+            let out = GateNode.execute(&mut ctx, &blk).await.unwrap();
+            assert!(
+                out.locked,
+                "人工'通过'后 gate 应通过——reason: {}",
+                out.reason
+            );
+            assert!(out
+                .produced
+                .iter()
+                .any(|(k, v)| k == "n2.判定" && v == "通过"));
+        }
+        std::fs::remove_file("/tmp/yz_flow3c.db").ok();
     }
 }

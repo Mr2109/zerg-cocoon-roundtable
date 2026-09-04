@@ -252,8 +252,20 @@ pub async fn run_discussion(
             let _ = db.update_session_progress(sid, idx as i64, "idle").await;
             return Err(e);
         }
-        // B2 推进：gate 不通过→回跳 next_by 或声明 back_to；否则 next[0] 或顺序 +1
-        let _ = ok;
+        // B3: gate 挂起（awaiting_human）——优雅退出（不置 completed——人答复后重启续跑）
+        if !ok && blk.human_gate != "none" && blk.kind == "gate" {
+            let s = db.get_session(sid).await.map_err(|e| e.to_string())?;
+            if s.map(|s| s.status == "awaiting_human").unwrap_or(false) {
+                return Ok(RunSummary {
+                    sid: sid.into(),
+                    started_at,
+                    blocks_done: done,
+                    blocks_total: total,
+                    completed: false,
+                });
+            }
+            // 非 human_gate 挂起（自动判定不通过）——走原顺序推进
+        }
         guard_counter += 1;
         if guard_counter > total * 3 {
             return Err("推进步数超限（next 声明疑似环）——终止".into());
