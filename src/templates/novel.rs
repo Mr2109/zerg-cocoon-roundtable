@@ -255,9 +255,60 @@ pub fn novel_template_fallback(project_type: &str) -> ProjectTemplate {
     t
 }
 
+/// 模板声明目录（独立跑=crate templates/；嵌入=随 DB 目录——v1.0.1 简化：两处都查）
+pub fn default_templates_dir() -> std::path::PathBuf {
+    // 优先 crate 相对（开发/独立跑）——其次当前目录
+    let candidates = [
+        std::path::PathBuf::from("templates"),
+        std::path::PathBuf::from("data/templates"),
+    ];
+    for c in &candidates {
+        if c.is_dir() {
+            return c.clone();
+        }
+    }
+    candidates[0].clone()
+}
+
 /// 按名找 Block
 pub fn find_block<'a>(blocks: &'a [Block], name: &str) -> Option<&'a Block> {
     blocks.iter().find(|b| b.name == name)
+}
+
+/// A2: 内置 novel 模板导出为 flow.json 文本（写入 templates/novel.flow.json——双轨声明文件）
+/// 结构对齐 loader::load_flow_str 的 FlowFile schema；B 系列引导文案（BLOCK_DESC）随 desc 字段导出
+pub fn export_novel_flow_json() -> String {
+    let t = novel_template();
+    let nodes: Vec<serde_json::Value> = t
+        .blocks
+        .iter()
+        .map(|b| {
+            serde_json::json!({
+                "id": format!("n{}", b.index),
+                "kind": b.kind,
+                "name": b.name,
+                "desc": b.desc,
+                "fields": b.fields,
+                "fm": b.fm,
+                "next": [],   // 隐式顺序（B2 起 DAG 显式化后由导出补全）
+                "human_gate": b.human_gate,
+                "model": b.model,
+            })
+        })
+        .collect();
+    let flow = serde_json::json!({
+        "id": "novel",
+        "name": "小说设定流水线",
+        "version": 1,
+        "inputs": t.inputs,
+        "roles": {
+            "moderator": t.moderator,
+            "panel": t.authors,
+        },
+        "nodes": nodes,
+        "gate": t.gate,
+    });
+    serde_json::to_string_pretty(&flow).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -283,5 +334,43 @@ mod tests {
         let t = get_template("novel");
         assert_eq!(t.blocks.len(), 13);
         assert_eq!(find_block(&t.blocks, "世界观").unwrap().fields.len(), 5);
+    }
+
+    #[test]
+    fn export_roundtrip_aligns_builtin() {
+        // A2 双轨对齐：导出 flow.json → loader 装载 → 与编译期内置逐字段相等
+        let json = export_novel_flow_json();
+        assert!(!json.is_empty());
+        let loaded = crate::templates::loader::load_flow_str(&json)
+            .expect("内置导出的声明必须能被装载器接受（自举一致性）");
+        let builtin = novel_template();
+        assert_eq!(loaded.project_type, builtin.project_type);
+        assert_eq!(loaded.blocks.len(), builtin.blocks.len(), "13 Block");
+        assert_eq!(loaded.authors.len(), builtin.authors.len(), "5 作者");
+        for (l, b) in loaded.blocks.iter().zip(builtin.blocks.iter()) {
+            assert_eq!(l.name, b.name, "Block 名逐字对齐");
+            assert_eq!(l.fields, b.fields, "字段逐字对齐");
+            assert_eq!(l.fm, b.fm, "格式模板逐字对齐");
+            assert_eq!(l.kind, b.kind);
+            assert_eq!(l.human_gate, b.human_gate);
+        }
+        assert_eq!(loaded.moderator.name, builtin.moderator.name);
+        assert_eq!(loaded.gate.pass_score, builtin.gate.pass_score);
+    }
+
+    #[test]
+    fn export_writes_file_and_loader_prefers_it() {
+        // 写入临时 templates/ 目录 → get_template_loaded 应装载文件版（而非回退）
+        let dir = std::env::temp_dir().join(format!("rt_flow_a2_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("novel.flow.json"), export_novel_flow_json()).unwrap();
+        let t = crate::templates::loader::get_template_loaded("novel", &dir);
+        assert_eq!(t.project_type, "novel");
+        assert_eq!(t.blocks.len(), 13);
+        // 坏文件也应回退内置（错误入日志不 panic）
+        std::fs::write(dir.join("novel.flow.json"), "{ broken").unwrap();
+        let t2 = crate::templates::loader::get_template_loaded("novel", &dir);
+        assert_eq!(t2.blocks.len(), 13, "坏声明文件回退编译期内置");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

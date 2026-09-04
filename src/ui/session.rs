@@ -47,15 +47,20 @@ impl RoundtableApp {
         let rt2 = self.rt.handle().clone();
         rt2.spawn(async move {
             let ai = make_ai(&prov);
-            match crate::engine::run::run_discussion(
-                &db,
-                &ai,
-                &novel::novel_template(),
-                &sid_owned,
-                &stop,
-                false,
-            )
-            .await
+            // A2: 按会话 project_type 装载模板（文件优先——不再固定 novel）
+            let ptype = db
+                .get_session(&sid_owned)
+                .await
+                .ok()
+                .flatten()
+                .map(|s| s.project_type)
+                .unwrap_or_else(|| "novel".into());
+            let tmpl = crate::templates::loader::get_template_loaded(
+                &ptype,
+                &crate::templates::default_templates_dir(),
+            );
+            match crate::engine::run::run_discussion(&db, &ai, &tmpl, &sid_owned, &stop, false)
+                .await
             {
                 Ok(summary) => {
                     log::info!(
@@ -142,7 +147,20 @@ pub fn session_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
         return;
     };
 
-    let tmpl = novel::novel_template();
+    // A2: 视图层模板也按会话 project_type 装载（Block 进度栏/右栏字段列表）
+    let tmpl = app
+        .rt
+        .block_on(app.db.get_session(sid))
+        .ok()
+        .flatten()
+        .map(|s| s.project_type)
+        .map(|pt| {
+            crate::templates::loader::get_template_loaded(
+                &pt,
+                &crate::templates::default_templates_dir(),
+            )
+        })
+        .unwrap_or_else(novel::novel_template);
     let templates = app
         .rt
         .block_on(app.db.get_templates(sid, None))

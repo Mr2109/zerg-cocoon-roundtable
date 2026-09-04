@@ -57,7 +57,10 @@ impl Scheduler {
         let mut q = self.queue.lock().unwrap();
         if !q.iter().any(|s| s == sid) {
             q.push_back(sid.to_string());
-            self.statuses.lock().unwrap().insert(sid.to_string(), "queued".into());
+            self.statuses
+                .lock()
+                .unwrap()
+                .insert(sid.to_string(), "queued".into());
         }
         self.stop_all_flag.store(false, Ordering::Relaxed);
     }
@@ -72,9 +75,13 @@ impl Scheduler {
     /// 消费队列（顺序执行——每会话断点续跑）
     pub async fn run(&self, ai: &BoxAi, quality_gate: bool) -> Vec<BatchResult> {
         if self.running.swap(true, Ordering::SeqCst) {
-            return vec![BatchResult { sid: "".into(), status: "busy".into(), error: Some("调度器已在运行".into()) }];
+            return vec![BatchResult {
+                sid: "".into(),
+                status: "busy".into(),
+                error: Some("调度器已在运行".into()),
+            }];
         }
-        let tmpl = novel::novel_template();
+        let templates_dir = crate::templates::default_templates_dir();
         let mut results = Vec::new();
         loop {
             if self.stop_all_flag.load(Ordering::Relaxed) {
@@ -90,23 +97,62 @@ impl Scheduler {
             };
             // 每会话独立 stop flag
             let flag = std::sync::Arc::new(AtomicBool::new(false));
-            self.stop_flags.lock().unwrap().insert(sid.clone(), flag.clone());
-            self.statuses.lock().unwrap().insert(sid.clone(), "running".into());
-            let out = run_discussion(&self.db, ai, &tmpl, &sid, &flag, quality_gate).await;
+            self.stop_flags
+                .lock()
+                .unwrap()
+                .insert(sid.clone(), flag.clone());
+            self.statuses
+                .lock()
+                .unwrap()
+                .insert(sid.clone(), "running".into());
+            let out = {
+                // A2: 按会话 project_type 装载模板（文件优先+编译期回退）——不再固定 novel
+                let ptype = self
+                    .db
+                    .get_session(&sid)
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|s| s.project_type)
+                    .unwrap_or_else(|| "novel".into());
+                let tmpl = crate::templates::loader::get_template_loaded(&ptype, &templates_dir);
+                run_discussion(&self.db, ai, &tmpl, &sid, &flag, quality_gate).await
+            };
             match out {
                 Ok(sum) => {
                     if sum.completed {
-                        self.statuses.lock().unwrap().insert(sid.clone(), "completed".into());
-                        results.push(BatchResult { sid: sid.clone(), status: "completed".into(), error: None });
+                        self.statuses
+                            .lock()
+                            .unwrap()
+                            .insert(sid.clone(), "completed".into());
+                        results.push(BatchResult {
+                            sid: sid.clone(),
+                            status: "completed".into(),
+                            error: None,
+                        });
                     } else {
-                        self.statuses.lock().unwrap().insert(sid.clone(), "stopped".into());
-                        results.push(BatchResult { sid: sid.clone(), status: "stopped".into(), error: None });
+                        self.statuses
+                            .lock()
+                            .unwrap()
+                            .insert(sid.clone(), "stopped".into());
+                        results.push(BatchResult {
+                            sid: sid.clone(),
+                            status: "stopped".into(),
+                            error: None,
+                        });
                     }
                 }
                 Err(e) => {
-                    self.statuses.lock().unwrap().insert(sid.clone(), "failed".into());
+                    self.statuses
+                        .lock()
+                        .unwrap()
+                        .insert(sid.clone(), "failed".into());
                     let msg: String = e.chars().take(200).collect();
-                    results.push(BatchResult { sid: sid.clone(), status: "error".into(), error: Some(msg) });
+                    results.push(BatchResult {
+                        sid: sid.clone(),
+                        status: "error".into(),
+                        error: Some(msg),
+                    });
                 }
             }
             self.stop_flags.lock().unwrap().remove(&sid);
@@ -152,8 +198,12 @@ mod tests {
     async fn batch_two_sessions() {
         let _ = std::fs::remove_file("/tmp/yz_sch1.db");
         let db = Db::open("/tmp/yz_sch1.db").await.unwrap();
-        db.create_session("s1", "批量1", "玄幻", "长篇", "zerg", "novel").await.unwrap();
-        db.create_session("s2", "批量2", "都市", "中篇", "zerg", "novel").await.unwrap();
+        db.create_session("s1", "批量1", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
+        db.create_session("s2", "批量2", "都市", "中篇", "zerg", "novel")
+            .await
+            .unwrap();
         // mock 脚本：每会话首块草案流（8 响应）——其余弹尾
         let mut script: Vec<String> = Vec::new();
         for _ in 0..2 {
@@ -176,7 +226,11 @@ mod tests {
         assert_eq!(results[1].sid, "s2");
         assert_eq!(results[1].status, "completed");
         let st = sch.status();
-        assert!(st.iter().all(|(_, s)| s == "completed"), "全 completed——{:?}", st);
+        assert!(
+            st.iter().all(|(_, s)| s == "completed"),
+            "全 completed——{:?}",
+            st
+        );
         std::fs::remove_file("/tmp/yz_sch1.db").ok();
     }
 
@@ -185,10 +239,17 @@ mod tests {
     async fn batch_stopable() {
         let _ = std::fs::remove_file("/tmp/yz_sch2.db");
         let db = Db::open("/tmp/yz_sch2.db").await.unwrap();
-        db.create_session("t1", "可停1", "玄幻", "长篇", "zerg", "novel").await.unwrap();
-        db.create_session("t2", "可停2", "都市", "中篇", "zerg", "novel").await.unwrap();
+        db.create_session("t1", "可停1", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
+        db.create_session("t2", "可停2", "都市", "中篇", "zerg", "novel")
+            .await
+            .unwrap();
         let mut script: Vec<String> = Vec::new();
-        script.push("草案1：\n故事核:停测设定。\n\n草案2：\n故事核:备选二。\n\n草案3：\n故事核:备选三。".to_string());
+        script.push(
+            "草案1：\n故事核:停测设定。\n\n草案2：\n故事核:备选二。\n\n草案3：\n故事核:备选三。"
+                .to_string(),
+        );
         script.push("请作者表态。".to_string());
         for _ in 0..5 {
             script.push("草案1：满意。".to_string());

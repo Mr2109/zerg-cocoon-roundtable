@@ -1,0 +1,251 @@
+{
+  "gate": {
+    "max_cycle": 3,
+    "pass_score": 80
+  },
+  "id": "novel",
+  "inputs": [
+    {
+      "default": "长篇",
+      "key": "length",
+      "label": "篇幅",
+      "options": [
+        "短篇",
+        "中篇",
+        "长篇",
+        "超长篇"
+      ],
+      "required": true
+    }
+  ],
+  "name": "小说设定流水线",
+  "nodes": [
+    {
+      "desc": "",
+      "fields": [
+        "类型",
+        "篇幅"
+      ],
+      "fm": "## 类型:{}\n## 篇幅:{}",
+      "human_gate": "none",
+      "id": "n0",
+      "kind": "discussion",
+      "model": "",
+      "name": "类型",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "故事核"
+      ],
+      "fm": "## 故事核:{}",
+      "human_gate": "none",
+      "id": "n1",
+      "kind": "discussion",
+      "model": "",
+      "name": "故事核",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "核心读者画像",
+        "市场锚点",
+        "风格基调",
+        "核心卖点",
+        "类型标签"
+      ],
+      "fm": "## 核心读者画像:{}\n## 市场锚点:{}\n## 风格基调:{}\n## 核心卖点:{}\n## 类型标签:{}",
+      "human_gate": "none",
+      "id": "n2",
+      "kind": "discussion",
+      "model": "",
+      "name": "读者定位与基础设定",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "时代背景",
+        "地理格局",
+        "社会结构",
+        "硬规则限制",
+        "软文化细节"
+      ],
+      "fm": "## 时代背景:{}\n## 地理格局:{}\n## 社会结构:{}\n## 硬规则限制:{}\n## 软文化细节:{}",
+      "human_gate": "none",
+      "id": "n3",
+      "kind": "discussion",
+      "model": "",
+      "name": "世界观",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "主角列表"
+      ],
+      "fm": "## 主角列表:\n{}",
+      "human_gate": "none",
+      "id": "n4",
+      "kind": "discussion",
+      "model": "",
+      "name": "主角设定",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "核心矛盾",
+        "冲突类型",
+        "贯穿全书的问题",
+        "全书主线"
+      ],
+      "fm": "## 核心矛盾:{}\n## 冲突类型:{}\n## 贯穿全书的问题:{}\n## 全书主线:{}",
+      "human_gate": "none",
+      "id": "n5",
+      "kind": "discussion",
+      "model": "",
+      "name": "核心冲突",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "大纲"
+      ],
+      "fm": "## 大纲:\n{}",
+      "human_gate": "none",
+      "id": "n6",
+      "kind": "discussion",
+      "model": "",
+      "name": "故事大纲",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "书名"
+      ],
+      "fm": "## 书名:{}",
+      "human_gate": "none",
+      "id": "n7",
+      "kind": "discussion",
+      "model": "",
+      "name": "暂定书名",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "总字数",
+        "卷数与分配"
+      ],
+      "fm": "## 总字数:{}\n## 卷数与分配:{}",
+      "human_gate": "none",
+      "id": "n8",
+      "kind": "discussion",
+      "model": "",
+      "name": "卷结构与衔接",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "填充内容",
+        "填肉大纲",
+        "配角列表"
+      ],
+      "fm": "## 填充内容:{}\n## 填肉大纲:{}\n## 配角列表:{}",
+      "human_gate": "none",
+      "id": "n9",
+      "kind": "discussion",
+      "model": "",
+      "name": "骨架填肉",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "卷大纲",
+        "新增角色",
+        "叙事意图",
+        "情感节拍",
+        "关键场景"
+      ],
+      "fm": "## 卷大纲:{}\n## 新增角色:{}\n## 叙事意图:{}\n## 情感节拍:{}\n## 关键场景:{}",
+      "human_gate": "none",
+      "id": "n10",
+      "kind": "discussion",
+      "model": "",
+      "name": "逐卷大纲",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "章节大纲"
+      ],
+      "fm": "## 章节大纲:{}",
+      "human_gate": "none",
+      "id": "n11",
+      "kind": "discussion",
+      "model": "",
+      "name": "逐章大纲",
+      "next": []
+    },
+    {
+      "desc": "",
+      "fields": [
+        "正文内容"
+      ],
+      "fm": "## 正文内容:{}",
+      "human_gate": "none",
+      "id": "n12",
+      "kind": "discussion",
+      "model": "",
+      "name": "正文创作",
+      "next": []
+    }
+  ],
+  "roles": {
+    "moderator": {
+      "name": "主持人",
+      "role": "引导讨论、整合意见"
+    },
+    "panel": [
+      {
+        "description": "负责设定规则/文明结构",
+        "name": "司世",
+        "specialty": "世界观派",
+        "zi": "字观止"
+      },
+      {
+        "description": "负责角色心理/对话可信度",
+        "name": "司人",
+        "specialty": "人物派",
+        "zi": "字知微"
+      },
+      {
+        "description": "负责情节框架/伏笔节奏",
+        "name": "司局",
+        "specialty": "结构派",
+        "zi": "字守衡"
+      },
+      {
+        "description": "负责语言质感/描写",
+        "name": "司言",
+        "specialty": "文笔派",
+        "zi": "字琢之"
+      },
+      {
+        "description": "负责开场引力/代入感",
+        "name": "司情",
+        "specialty": "共情派",
+        "zi": "字动心"
+      }
+    ]
+  },
+  "version": 1
+}

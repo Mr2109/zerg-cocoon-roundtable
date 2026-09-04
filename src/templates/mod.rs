@@ -6,6 +6,6 @@ pub mod novel;
 
 pub use loader::{get_template_loaded, load_flow_file, load_flow_str};
 pub use novel::{
-    find_block, get_template, Author, Block, GateRule, Moderator, ProjectTemplate, TemplateInput,
-    NOVEL_BLOCKS,
+    default_templates_dir, find_block, get_template, Author, Block, GateRule, Moderator,
+    ProjectTemplate, TemplateInput, NOVEL_BLOCKS,
 };

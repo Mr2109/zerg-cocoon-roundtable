@@ -14,10 +14,11 @@
 - 角色团变长校验（1-8——Mr2109）
 - 验收：✅ 50 测试全过（新增 loader 7 测：合法装载/未定义变量/悬空 next/环/非法 kind/角色上限/错误批量）
 
-### A2 ⬜ novel.flow.json 双轨
-- 内置 NOVEL_BLOCKS 导出为 templates/novel.flow.json（脚本/测试生成——内容逐字搬）
-- 启动装载：文件优先、无文件回退编译期
-- 验收：装载结果与编译期逐字段断言相等（对齐测试）
+### A2 ✅ novel.flow.json 双轨（2026-09-04）
+- export_novel_flow_json（examples/export_novel_flow.rs 一次性导出）→ templates/novel.flow.json（13 节点/5 角色 5462B 入库）
+- get_template_loaded：文件优先+坏文件回退编译期（错误入日志不 panic）
+- 引擎/调度器/UI 三处调用点全切「按会话 project_type 装载」——不再固定 novel
+- 验收：✅ 52 测试全过（新增 roundtrip 对齐=装载==编译期逐字段 + 文件优先/坏文件回退 2 测）
 
 ### A3 ⬜ 变量池 v2（flow_vars 表）
 - 表 (sid, node_id, key, value, ts)——第 14 张表
