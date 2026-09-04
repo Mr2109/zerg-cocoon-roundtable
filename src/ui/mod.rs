@@ -14,6 +14,7 @@ use std::sync::atomic::Ordering;
 
 pub mod chapter;
 pub mod session;
+pub mod workshop;
 
 /// AI 是否连接（env YZ_GATEWAY_TOKEN 有效——空/占位 ***/过短=未连接→AI mock——讨论/生成会空跑）——2026-09-03
 pub fn ai_connected() -> bool {
@@ -72,6 +73,10 @@ pub struct RoundtableApp {
     pub available_templates: Vec<(String, String)>,
     /// B4: 当前选中的模板 id
     pub form_template: String,
+    /// C4a: 工坊状态（人机共用任务流工作台）
+    pub workshop: crate::ui::workshop::Workshop,
+    /// C4a: 视图开关（true=显示工坊——false=圆桌派主界面）
+    pub show_workshop: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -148,6 +153,8 @@ impl RoundtableApp {
             form_values: Default::default(),
             available_templates: Vec::new(),
             form_template: "novel".into(),
+            workshop: crate::ui::workshop::Workshop::new(),
+            show_workshop: false,
         };
         app.reset_stale_running(); // 上轮进程残留 running→idle（断点可重开——2026-09-03）
         app.refresh_sessions();
@@ -330,6 +337,13 @@ impl RoundtableApp {
                         std::time::Instant::now() - std::time::Duration::from_secs(3600);
                     // 触发重载
                 }
+                // C4a: 工坊入口（人机共用任务流工作台）
+                if ui.button("🛠 工坊").clicked() {
+                    self.show_workshop = !self.show_workshop;
+                    if self.show_workshop && self.available_templates.is_empty() {
+                        self.available_templates = scan_templates();
+                    }
+                }
                 if self.embedded {
                     ui.separator();
                     ui.label(
@@ -341,10 +355,18 @@ impl RoundtableApp {
             });
         });
         // 视图主体
-        match self.view.clone() {
-            View::Home => self.home_view(ui),
-            View::Session(sid) => crate::ui::session::session_view(self, ui, &sid),
-            View::Chapter(sid) => crate::ui::chapter::chapter_view(self, ui, &sid),
+        if self.show_workshop {
+            crate::ui::workshop::workshop_view(self, ui);
+            // 工坊内保存/新建后刷新模板列表（新建流立即可被新建表单选到）
+            let count = self.available_templates.len();
+            self.available_templates = scan_templates();
+            let _ = count;
+        } else {
+            match self.view.clone() {
+                View::Home => self.home_view(ui),
+                View::Session(sid) => crate::ui::session::session_view(self, ui, &sid),
+                View::Chapter(sid) => crate::ui::chapter::chapter_view(self, ui, &sid),
+            }
         }
         // 日志对话框（独立 egui Window——不挤三栏——打开时/60s 防抖重载）
         if self.show_log_window {

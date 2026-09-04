@@ -66,6 +66,13 @@
 
 ## C 案：编排层
 
+### C4a ✅ 工坊骨架（模板库+代码视图+实时校验+保存）（2026-09-04）
+- workshop.rs（新）：Workshop 状态（editing/draft/last_check/saved_baseline）——open/new_flow/save/revalidate
+- 布局：左模板库（扫描列表+新建空白流）| 中 JSON 编辑器（等宽 code_editor——改即实时校验）| 底校验状态条（✅/❌错误清单可读——Dify checklist 思想）
+- 铁律落地：保存强制重校验——装载器唯一裁判——未过不落盘；dirty 标记（未保存●）；id 文件名安全校验
+- 面包屑「🛠 工坊」入口——show_workshop 视图开关——保存后模板列表刷新（新建流立即被新建表单选到）
+- 验收：✅ 61 测试全过——UI 手工验收随部署
+
 ### C1 ⬜ 只读画布
 - egui 画布渲染 flow.json（节点框/连线/human_gate 标记）+ Mermaid 导出
 - 验收：手工核对图形与声明一致
