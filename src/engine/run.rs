@@ -71,12 +71,19 @@ pub async fn run_discussion(
         &session.novel_type,
         &session.length,
         &session.provider,
-    )
-    .with_input_vars(HashMap::from([
-        ("input.topic".to_string(), session.name.clone()),
-        ("input.length".to_string(), session.length.clone()),
-        ("input.novel_type".to_string(), session.novel_type.clone()),
-    ]));
+    );
+    // A4/B4: 会话 inputs 从变量池拉（input.* 前缀——contract_text 等动态表单值）+ 内建三键
+    {
+        let mut iv: HashMap<String, String> = HashMap::from([
+            ("input.topic".to_string(), session.name.clone()),
+            ("input.length".to_string(), session.length.clone()),
+            ("input.novel_type".to_string(), session.novel_type.clone()),
+        ]);
+        for (_nid, k, v) in db.get_flow_vars(sid).await.unwrap_or_default() {
+            iv.insert(format!("input.{k}"), v);
+        }
+        state.input_vars = iv;
+    }
     let mut ctx = String::new();
     let mut locked_names: Vec<String> = Vec::new();
     let all_templates = db

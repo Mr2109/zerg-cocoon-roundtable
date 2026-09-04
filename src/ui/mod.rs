@@ -197,13 +197,24 @@ impl RoundtableApp {
             self.provider.clone(),
         );
         let id = format!("rt_{}", chrono_now());
-        let r = self.rt.block_on(
-            self.db
-                .create_session(&id, &topic, &nt, &len, &prov, "novel"),
-        );
+        // A4/B4: 当前选择的模板（novel 起步——B4 后加模板选择器；inputs 值入变量池）
+        let ptype = "novel";
+        let r = self
+            .rt
+            .block_on(self.db.create_session(&id, &topic, &nt, &len, &prov, ptype));
         match r {
             Ok(()) => {
+                // A4: 表单动态值写入变量池（{{input.xxx}} 替换源——contract_text 等大文本走这里）
+                let db = self.db.clone();
+                let id2 = id.clone();
+                let vals = self.form_values.clone();
+                self.rt.block_on(async move {
+                    for (k, v) in &vals {
+                        let _ = db.set_flow_var(&id2, "input", k, v).await;
+                    }
+                });
                 self.topic.clear();
+                self.form_values.clear();
                 self.err = None;
                 self.refresh_sessions();
                 self.view = View::Session(id);
