@@ -125,6 +125,24 @@ impl Workshop {
         self.revalidate();
     }
 
+    /// 取消编辑（回滚草稿到打开时基线——未保存改动全弃——回未编辑态）
+    pub fn cancel(&mut self) {
+        if let Some(baseline) = self.saved_baseline.take() {
+            // 已有基线=编辑现有流——draft 回基线
+            self.draft = baseline;
+            self.saved_baseline = None;
+        } else {
+            // 无基线（新建流）——清空
+            self.draft.clear();
+        }
+        self.editing = None;
+        self.trace.clear();
+        self.canvas_sel.clear();
+        self.canvas_buf = CanvasBuf::default();
+        self.last_check = None;
+        self.toast = Some("↩ 已取消编辑".into());
+    }
+
     /// 校验当前草稿（装载器即唯一裁判）
     pub fn revalidate(&mut self) {
         self.last_check = Some(match loader::load_flow_str(&self.draft) {
@@ -397,6 +415,10 @@ pub fn workshop_view(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
                 app.workshop
                     .save(&crate::templates::default_templates_dir());
             }
+            // 取消编辑（放弃未保存改动——回滚到打开时基线）
+            if ui.button("↩ 取消编辑").clicked() {
+                app.workshop.cancel();
+            }
             if ui.button("↺ 重载文件").clicked() {
                 if let Some(id) = app.workshop.editing.clone() {
                     app.workshop
@@ -424,11 +446,11 @@ pub fn workshop_view(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
         // C4d: AI 建/改流（需求输入+validate-loop 后台回路——结果出提议卡片）
         crate::ui::builder::builder_ui(app, ui);
         ui.separator();
-        // tab 切换
+        // tab 切换（Mr2109定序：画布/代码/试跑）
         ui.horizontal(|ui| {
+            ui.selectable_value(&mut app.workshop.tab, 2, "🗺 画布");
             ui.selectable_value(&mut app.workshop.tab, 0, "📝 代码");
             ui.selectable_value(&mut app.workshop.tab, 1, "🔬 试跑");
-            ui.selectable_value(&mut app.workshop.tab, 2, "🗺 画布");
         });
         ui.separator();
         match app.workshop.tab {

@@ -14,6 +14,8 @@ struct CNode {
     kind: String,
     gate: bool,
     next: Vec<String>,
+    /// 本节点 next 是否为隐式顺序边（引擎语义：next 空=按数组顺序）——画布浅色虚线区分
+    implicit_next: bool,
     layer: usize,
     col: usize, // 同层序号（防重叠）
 }
@@ -75,9 +77,18 @@ fn parse_nodes(draft: &str) -> Result<Vec<CNode>, String> {
             kind,
             gate,
             next,
+            implicit_next: false,
             layer: 0,
             col: 0,
         });
+    }
+    // 引擎语义对齐：next 空 = 按数组顺序隐式推进（B2 DAG 语义）——画布补隐式边（novel 流全是这种——否则一根线都没有）
+    for i in 0..out.len().saturating_sub(1) {
+        if out[i].next.is_empty() {
+            let target = out[i + 1].id.clone();
+            out[i].next.push(target);
+            out[i].implicit_next = true;
+        }
     }
     // Kahn 拓扑分层（轮初快照防同轮级联——环堆末层不崩）
     let ids: Vec<String> = out.iter().map(|n| n.id.clone()).collect();
@@ -313,7 +324,7 @@ pub fn canvas_ui(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
                     rect.top() + GAP_Y + n.col as f32 * (NODE_H + GAP_Y) + NODE_H / 2.0,
                 )
             };
-            // 连线（先画——垫底）
+            // 连线（先画——垫底）——隐式顺序边=虚线浅色（引擎语义 next 空=顺序），显式 next=实线
             for n in &nodes {
                 for nxt in &n.next {
                     if let Some(t) = nodes.iter().find(|m| &m.id == nxt) {
@@ -322,20 +333,26 @@ pub fn canvas_ui(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
                         let start = Pos2::new(a.x + NODE_W / 2.0, a.y);
                         let end = Pos2::new(b.x - NODE_W / 2.0, b.y);
                         let mid = (start.x + end.x) / 2.0;
+                        let (color, width) = if n.implicit_next {
+                            (Color32::from_rgb(95, 105, 125), 1.2)
+                        } else {
+                            (Color32::from_rgb(120, 140, 190), 1.6)
+                        };
+                        let stroke = Stroke::new(width, color).into();
                         let curve = egui::epaint::CubicBezierShape {
                             points: [start, Pos2::new(mid, start.y), Pos2::new(mid, end.y), end],
                             closed: false,
                             fill: Color32::TRANSPARENT,
-                            stroke: Stroke::new(1.6, Color32::from_rgb(120, 140, 190)).into(),
+                            stroke,
                         };
                         painter.add(curve);
                         painter.line_segment(
                             [end, Pos2::new(end.x - 6.0, end.y - 4.0)],
-                            Stroke::new(1.6, Color32::from_rgb(120, 140, 190)),
+                            Stroke::new(width, color),
                         );
                         painter.line_segment(
                             [end, Pos2::new(end.x - 6.0, end.y + 4.0)],
-                            Stroke::new(1.6, Color32::from_rgb(120, 140, 190)),
+                            Stroke::new(width, color),
                         );
                     }
                 }
@@ -493,6 +510,11 @@ pub fn canvas_ui(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
             ui.label(RichText::new(format!("{icon} {k}")).small().color(c));
         }
         ui.label(RichText::new("⏸人工=human_gate").small().weak());
+        ui.label(
+            RichText::new("浅色线=隐式顺序(next 空=按数组顺序)")
+                .small()
+                .weak(),
+        );
     });
 }
 
@@ -511,19 +533,31 @@ mod tests {
 
     #[test]
     fn parse_branch_and_cycle_no_crash() {
-        // 分支：n0→n1,n0→n2
+        // 分支：n0→n1,n0→n2——n1/n2 next 空=隐式顺序（n1→n2 补边——引擎语义）
         let branch = r##"{"nodes":[{"id":"n0","name":"A","kind":"single","next":["n1","n2"]},{"id":"n1","name":"B","kind":"single","next":[]},{"id":"n2","name":"C","kind":"single","next":[]}]}"##;
         let ns = parse_nodes(branch).unwrap();
         assert_eq!(ns[1].layer, 1);
-        assert_eq!(ns[2].layer, 1);
-        assert_eq!(ns[1].col, 0);
-        assert_eq!(ns[2].col, 1);
+        assert_eq!(ns[2].layer, 2); // n1→n2 隐式边 → n2 依赖 n1
+        assert!(ns[1].implicit_next);
+        assert!(!ns[0].implicit_next);
         // 环：n0→n1→n0——不崩不挂
         let cyc = r##"{"nodes":[{"id":"n0","name":"A","kind":"single","next":["n1"]},{"id":"n1","name":"B","kind":"single","next":["n0"]}]}"##;
         let ns2 = parse_nodes(cyc).unwrap();
         assert_eq!(ns2.len(), 2);
         // 坏 JSON
         assert!(parse_nodes("{bad").is_err());
+    }
+
+    #[test]
+    fn implicit_chain_linear_flow() {
+        // novel 流形态：全隐式顺序（next 全空）——画布应有 n-1 条链
+        let json = r##"{"nodes":[{"id":"n0","name":"A","kind":"single","next":[]},{"id":"n1","name":"B","kind":"single","next":[]},{"id":"n2","name":"C","kind":"single","next":[]}]}"##;
+        let ns = parse_nodes(json).unwrap();
+        assert!(ns
+            .iter()
+            .enumerate()
+            .all(|(i, n)| { n.layer == i && (i == 2 || (n.next.len() == 1 && n.implicit_next)) }));
+        assert!(!ns[2].implicit_next); // 末节点无出边
     }
 
     #[test]
