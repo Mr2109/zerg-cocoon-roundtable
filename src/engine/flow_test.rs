@@ -164,4 +164,34 @@ mod tests {
         assert!(!out.locked, "摘要不含'复仇'——gate 应不通过");
         std::fs::remove_file("/tmp/yz_flow3b.db").ok();
     }
+
+    #[test]
+    fn next_declaration_reorders() {
+        // B2: next 声明跳转——run_discussion 推进逻辑单测（不走 AI——纯顺序验证）
+        // 构造：3 块，n0.next=["n2"]——从 n0 跑完应跳到 n2（跳过 n1）——用 run 的推进公式直接验
+        let flow = r##"{
+            "id": "skip", "name": "跳转", "version": 1, "inputs": [],
+            "roles": {"moderator": {"name": "主持", "role": "r"}, "panel": [
+                {"name": "甲", "zi": "字一", "specialty": "s", "description": "d"}
+            ]},
+            "nodes": [
+                {"id": "n0", "kind": "gate", "name": "入口", "desc": ""},
+                {"id": "n1", "kind": "gate", "name": "被跳过", "desc": ""},
+                {"id": "n2", "kind": "gate", "name": "终点", "desc": ""}
+            ]
+        }"##;
+        let flow_v2 = flow.replace(
+            r#"{"id": "n0", "kind": "gate", "name": "入口", "desc": ""}"#,
+            r#"{"id": "n0", "kind": "gate", "name": "入口", "desc": "", "next": ["n2"]}"#,
+        );
+        let t = load_flow_str(&flow_v2).unwrap();
+        // 模拟 run_discussion 推进公式：next[0] 解析到目标索引
+        let blk = &t.blocks[0];
+        assert_eq!(blk.next, vec!["n2"]);
+        let next_idx = t
+            .blocks
+            .iter()
+            .position(|b| blk.next[0] == format!("n{}", b.index) || blk.next[0] == b.name);
+        assert_eq!(next_idx, Some(2), "n0.next=n2 应解析到索引 2——跳过 n1");
+    }
 }

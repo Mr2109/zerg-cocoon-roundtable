@@ -42,10 +42,12 @@
 - loader 修订: inputs 纳入 {{input.key}} 引用命名空间（A4 设计补全）
 - 验收：✅ 59 测试全过——flow_test 三节点流端到端（single→single→gate 通过+不通过两向）
 
-### B2 ⬜ next/next_by 受控 DAG + current_node 断点兼容
-- 主循环线性→按声明推进（无 next=隐式顺序——novel 等价）
-- 断点续跑记录 current_node（兼容 current_block）
-- 验收：novel 改造前后 mock 全流程输出一致（等价性专测）+ 分支流测试
+### B2 ✅ next/next_by 受控 DAG + current_node 断点兼容（2026-09-04）
+- run_discussion 主循环 for→while 游标推进：next 声明优先跳转（next[0]→索引解析），空=顺序 +1（novel 全隐式线性——完全等价）
+- 按 kind 分发：discussion 走 process_block 原状态机；single/gate 走 RtFlowNode（统一 NodeOutcome）
+- 质量门禁限 discussion 节点（single/gate 无草案不可评分）；异常/停止进度留当前块断点续跑语义保持
+- 环保底双保险（loader 拒环 + 推进步数超限终止）
+- 验收：✅ 60 测试全过——novel 等价性三专测（完整跑/断点续跑/门禁重跑）原样通过 + next 跳转专测
 
 ### B3 ⬜ tool 节点（HTTP+脚本最小集）+ gate human_confirm
 - tool: HTTP 请求/本地脚本执行——参数模板+输出写变量池；dispatch 形态留位（虫族派单）

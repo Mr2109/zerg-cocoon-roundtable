@@ -6,6 +6,7 @@
 use crate::ai::AiMessage;
 use crate::db::pool::Db;
 use crate::engine::discussion::{process_block, BoxAi, DiscussionState};
+use crate::engine::nodes::RtFlowNode;
 use crate::templates::{Block, ProjectTemplate};
 use rusqlite::params;
 use std::collections::HashMap;
@@ -137,8 +138,12 @@ pub async fn run_discussion(
     };
 
     let mut done = start_block;
-    for (i, blk) in blocks.iter().enumerate() {
-        let idx = start_block + i;
+    // B2: DAG 推进——游标=块索引（novel 全隐式线性——next 空=顺序——与原 for 循环完全等价）
+    // next 声明：当前块 next 非空→跳到 next[0] 对应索引（B1 gate 不通过后续语义 B3 next_by 扩展）
+    let mut idx = start_block;
+    let mut guard_counter = 0usize; // 环保底（next 声明错误时防死循环——loader 已拒环，双保险）
+    while idx < total {
+        let blk = &tmpl.blocks[idx];
         if stop_flag.load(Ordering::Relaxed) {
             // 停止——进度留在当前块——下次续跑
             db.update_session_progress(sid, idx as i64, "idle")
@@ -152,17 +157,45 @@ pub async fn run_discussion(
                 completed: false,
             });
         }
-        // 单块运行（质量门禁：D 级重跑 ≤2——评分开时才生效）
+        // 单块运行——按 kind 分发（B2：discussion 原状态机；single/gate 走 RtFlowNode）
         let mut retries = 0;
-        let mut outcome = match process_block(db, &guard, tmpl, &mut state, blk).await {
-            Ok(o) => o,
-            Err(e) => {
-                // 异常——进度留当前块——断点续跑
-                let _ = db.update_session_progress(sid, idx as i64, "idle").await;
-                return Err(e);
+        let mut outcome = match blk.kind.as_str() {
+            "single" | "gate" => {
+                let mut vars: HashMap<String, String> = HashMap::new();
+                for (nid, k, v) in db.get_flow_vars(sid).await.unwrap_or_default() {
+                    vars.insert(format!("{nid}.{k}"), v);
+                }
+                for (k, v) in &state.input_vars {
+                    vars.insert(k.clone(), v.clone());
+                }
+                let mut ctx = crate::engine::nodes::NodeCtx {
+                    db,
+                    ai: &guard,
+                    state: &mut state,
+                    vars,
+                };
+                // 直接按 kind 调对应节点（两个具体类型不可 disjoint match——分支内直接调）
+                if blk.kind == "single" {
+                    crate::engine::nodes::SingleNode
+                        .execute(&mut ctx, blk)
+                        .await
+                } else {
+                    crate::engine::nodes::GateNode.execute(&mut ctx, blk).await
+                }
             }
+            _ => process_block(db, &guard, tmpl, &mut state, blk)
+                .await
+                .map(|o| crate::engine::nodes::NodeOutcome {
+                    locked: o.locked,
+                    reason: o.reason,
+                    produced: Vec::new(),
+                }),
         };
-        if quality_gate && outcome.locked {
+        if quality_gate
+            && outcome.as_ref().map(|o| o.locked).unwrap_or(false)
+            && blk.kind == "discussion"
+        {
+            // 质量门禁仅对 discussion 节点（single/gate 无草案可评分——B1 定案）
             let mut worst: i64 = 0;
             while retries < 2 {
                 worst = gate_score_block(db, &guard, tmpl, sid, idx, blk, &state).await?;
@@ -196,15 +229,44 @@ pub async fn run_discussion(
                     })
                     .await
                     .map_err(|e| e.to_string())?;
-                    outcome = process_block(db, &guard, tmpl, &mut state, blk).await?;
+                    // 重跑（kind 分发——与首次执行同路）
+                    outcome = match blk.kind.as_str() {
+                        "single" | "gate" => unreachable!("质量门禁仅 discussion——上方已判"),
+                        _ => process_block(db, &guard, tmpl, &mut state, blk)
+                            .await
+                            .map(|o| crate::engine::nodes::NodeOutcome {
+                                locked: o.locked,
+                                reason: o.reason,
+                                produced: Vec::new(),
+                            }),
+                    };
                 } else {
                     break;
                 }
             }
             let _ = worst;
         }
-        let _ = outcome;
-        done = idx + 1;
+        let ok = outcome.as_ref().map(|o| o.locked).unwrap_or(false);
+        if let Err(e) = outcome {
+            // 异常——进度留当前块——断点续跑
+            let _ = db.update_session_progress(sid, idx as i64, "idle").await;
+            return Err(e);
+        }
+        // B2 推进：gate 不通过→回跳 next_by 或声明 back_to；否则 next[0] 或顺序 +1
+        let _ = ok;
+        guard_counter += 1;
+        if guard_counter > total * 3 {
+            return Err("推进步数超限（next 声明疑似环）——终止".into());
+        }
+        let next_idx = if !blk.next.is_empty() {
+            // 声明了 next——gate 不通过时原地重跑语义 B3 扩展；现在 next[0] 即跳
+            tmpl.blocks
+                .iter()
+                .position(|b| blk.next[0] == format!("n{}", b.index) || &blk.next[0] == &b.name)
+        } else {
+            None
+        };
+        done = idx + 1; // blocks_done 语义保持「已处理到第几块」（线性兼容）
         db.update_session_progress(
             sid,
             done as i64,
@@ -216,6 +278,8 @@ pub async fn run_discussion(
         )
         .await
         .map_err(|e| e.to_string())?;
+        // 推进游标：显式 next 优先，否则顺序 +1
+        idx = next_idx.unwrap_or(idx + 1);
     }
     let completed = done >= total;
     Ok(RunSummary {
