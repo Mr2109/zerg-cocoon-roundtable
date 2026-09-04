@@ -73,7 +73,13 @@
 - 面包屑「🛠 工坊」入口——show_workshop 视图开关——保存后模板列表刷新（新建流立即被新建表单选到）
 - 验收：✅ 61 测试全过——UI 手工验收随部署
 
-### C4b ✅ 试跑通道（MockProvider 会话——零 token 走流程）（2026-09-04）
+### C4c ✅ 协作者面板（AI 提议 diff 卡片+变更流水）（2026-09-04）
+- collab.rs（新）：Collab 状态（proposals/changes）——AI 提议=节点级 diff 卡片（Dify graph-diff 思想：added/removed/changed 三色按 node id+内容指纹比较——edges 忽略防重排误报）
+- 提议预检：生成时即过装载器——❌ 错误的提议禁用采纳按钮（人不会误采纳坏流程）
+- 采纳→替换工作台草稿+revalidate+流水入账；拒绝→状态标记——两者全程可见可追溯
+- 变更流水（共同账）：[时间] 人/AI + 动作——cap 100——工坊右侧 SidePanel（可拖宽）
+- 人保存成功自动入流水（saved_flag 标记）
+- 验收：✅ 65 测试全过（diff 三类检测+提议预检拒绝+拒绝后不可采纳）
 - 「▶ 试跑(Mock)」按钮（校验过才可用）——自动切试跑 tab
 - 后台 run_discussion 复用（Mock AI 按节点 kind 预置响应——discussion 8 响应/块/single 按 fields）——真跑节点顺序/变量传递/门禁分支
 - 试跑 tab：变量池 trace 列表（node/产出/key=value 摘要 60 字）

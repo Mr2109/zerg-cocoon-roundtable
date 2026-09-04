@@ -42,6 +42,8 @@ pub struct Workshop {
     dry_sid: Option<String>,
     /// C4b: runtime handle（poll 清理用）
     dry_rt: Option<tokio::runtime::Handle>,
+    /// C4c: 保存标志（save 成功置位——workshop_view 读后清+入协作流水）
+    pub saved_flag: bool,
 }
 
 impl Workshop {
@@ -59,6 +61,7 @@ impl Workshop {
             dry_rx: None,
             dry_sid: None,
             dry_rt: None,
+            saved_flag: false,
         }
     }
 
@@ -132,6 +135,8 @@ impl Workshop {
                         self.saved_baseline = Some(self.draft.clone());
                         self.toast = Some(format!("✅ 已保存 {path:?}"));
                         log::info!("工坊保存: {path:?}");
+                        // C4c: 人改流水（由调用方协作面板入账——此处回传标记）
+                        self.saved_flag = true;
                     }
                     Err(e) => self.toast = Some(format!("❌ 写文件失败: {e}")),
                 }
@@ -291,10 +296,29 @@ impl Workshop {
     }
 }
 
-/// 工坊主视图（三区——左模板库/中代码+试跑/底校验条）
+/// 工坊主视图（三区——左模板库/中代码+试跑/右协作者/底校验条）
 pub fn workshop_view(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
     // 轮询试跑结果
     app.workshop.poll_dry_run(&app.db);
+    // C4c: 保存成功→人改流水入账
+    if app.workshop.saved_flag {
+        app.workshop.saved_flag = false;
+        let what = app
+            .workshop
+            .editing
+            .clone()
+            .map(|id| format!("保存 {id}"))
+            .unwrap_or_else(|| "保存".into());
+        app.collab.log_human(what);
+    }
+
+    // 右：协作者面板（C4c——AI 提议卡片+变更流水）
+    egui::Panel::right("ws_collab")
+        .default_size(280.0)
+        .resizable(true)
+        .show_inside(ui, |ui| {
+            crate::ui::collab::collab_panel(app, ui);
+        });
 
     // 左：模板库
     egui::Panel::left("ws_lib")
