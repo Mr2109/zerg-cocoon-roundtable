@@ -70,7 +70,12 @@ pub async fn run_discussion(
         &session.novel_type,
         &session.length,
         &session.provider,
-    );
+    )
+    .with_input_vars(HashMap::from([
+        ("input.topic".to_string(), session.name.clone()),
+        ("input.length".to_string(), session.length.clone()),
+        ("input.novel_type".to_string(), session.novel_type.clone()),
+    ]));
     let mut ctx = String::new();
     let mut locked_names: Vec<String> = Vec::new();
     let all_templates = db

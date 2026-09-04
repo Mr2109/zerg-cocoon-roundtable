@@ -26,10 +26,11 @@
 - 引擎锁定钩子：lock_up 每字段锁定时写变量池（node_id=n{index}）——B 案 {{}} 替换数据源
 - 验收：✅ 53 测试全过（roundtrip：覆写/顺序/会话隔离/未定义 None）
 
-### A4 ⬜ {{node.field}} 替换 + 表单读 inputs + human_gate 声明
-- 上下文组装：desc 内 {{}} 占位替换（未定义引用→装载失败 errors 表）
-- 新建表单字段从模板 inputs 动态渲染（不锁死小说类型/篇幅）
-- 验收：手工——新模板表单字段随模板变；引用校验测试
+### A4 ✅ {{node.field}} 替换 + 表单读 inputs + human_gate 声明（2026-09-04）
+- substitute_vars/extract_refs（discussion.rs——未命中保持原样不静默丢信息）
+- process_block 开场组装变量表（flow_vars + input.topic/length/novel_type）→ desc 替换后作为主持人引导消息注入讨论流
+- 新建表单动态渲染：form_inputs/form_values——模板 inputs 驱动（options=选择行/空=自由文本）——LENGTHS 常量删除
+- 验收：✅ 55 测试全过（+2 替换/提取）——手工验收待新模板（B4 合同审查流首个实证）
 
 ## B 案：节点层
 

@@ -18,6 +18,8 @@ pub struct DiscussionState {
     pub provider: String,
     pub locked_context: String,
     pub locked_blocks: std::collections::HashSet<String>,
+    /// A4: 会话 inputs（{{input.key}} 替换源——key→value）
+    pub input_vars: HashMap<String, String>,
 }
 
 /// 单块处理结果
@@ -47,7 +49,14 @@ impl DiscussionState {
             provider: provider.to_string(),
             locked_context: String::new(),
             locked_blocks: Default::default(),
+            input_vars: HashMap::new(),
         }
+    }
+
+    /// 注入会话 inputs（run_discussion 从 session 行取——{{input.key}} 替换源）
+    pub fn with_input_vars(mut self, vars: HashMap<String, String>) -> Self {
+        self.input_vars = vars;
+        self
     }
 }
 
@@ -85,6 +94,19 @@ pub async fn process_block(
     }
 
     add_msg(db, &state.sid, "主持人", "（主持人开场）", "guide", bn, 0).await?;
+
+    // A4: 变量表组装（flow_vars + 会话 inputs）——desc {{}} 替换注入提示词
+    let mut var_map: HashMap<String, String> = HashMap::new();
+    for (nid, k, v) in db.get_flow_vars(&state.sid).await.unwrap_or_default() {
+        var_map.insert(format!("{nid}.{k}"), v);
+    }
+    for (k, v) in &state.input_vars {
+        var_map.insert(k.clone(), v.clone());
+    }
+    let desc_resolved = substitute_vars(&block.desc, &var_map);
+    if !desc_resolved.is_empty() {
+        add_msg(db, &state.sid, "主持人", &desc_resolved, "guide", bn, 0).await?;
+    }
 
     let mut vv: HashMap<String, String> = fs.iter().map(|f| (f.clone(), "_".into())).collect();
     let mut dr = String::new();
@@ -470,6 +492,38 @@ fn draft_prompt(fs: &[String], bn: &str) -> String {
     )
 }
 
+/// A4: {{node.field}} / {{input.key}} 变量替换（模板 desc/提示词用）
+/// vars: (selector, value) 全集——含 flow_vars 与会话 inputs；未命中保持原样（不静默丢信息）
+pub fn substitute_vars(text: &str, vars: &HashMap<String, String>) -> String {
+    let mut out = text.to_string();
+    for (k, v) in vars {
+        let pat = format!("{{{{{k}}}}}");
+        if out.contains(&pat) {
+            out = out.replace(&pat, v);
+        }
+    }
+    out
+}
+
+/// 从文本提取 {{xxx.yyy}} 引用（与 loader 同语法——运行时替换用）
+pub fn extract_refs(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        if let Some(end) = after.find("}}") {
+            let inner = after[..end].trim().to_string();
+            if inner.contains('.') {
+                out.push(inner);
+            }
+            rest = &after[end + 2..];
+        } else {
+            break;
+        }
+    }
+    out
+}
+
 pub fn sys_msg(content: &str) -> AiMessage {
     AiMessage {
         role: "system".into(),
@@ -604,5 +658,23 @@ mod tests {
         let opinions = msgs.iter().filter(|m| m.sender_type == "opinion").count();
         assert_eq!(opinions, 5, "5 作者表态");
         std::fs::remove_file("/tmp/yz_eng2.db").ok();
+    }
+
+    #[test]
+    fn substitute_vars_replaces() {
+        let mut vars = HashMap::new();
+        vars.insert("n0.故事核".to_string(), "少年修仙".to_string());
+        vars.insert("input.topic".to_string(), "复仇记".to_string());
+        let out = substitute_vars("围绕{{n0.故事核}}展开——主题{{input.topic}}", &vars);
+        assert_eq!(out, "围绕少年修仙展开——主题复仇记");
+        // 未命中保持原样
+        let out2 = substitute_vars("{{nX.不存在}}", &vars);
+        assert_eq!(out2, "{{nX.不存在}}");
+    }
+
+    #[test]
+    fn extract_refs_finds() {
+        let refs = extract_refs("a{{n0.故事核}}b {{ input.topic }} c{{非变量}}d");
+        assert_eq!(refs, vec!["n0.故事核", "input.topic"]);
     }
 }

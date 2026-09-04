@@ -64,6 +64,10 @@ pub struct RoundtableApp {
     pub log_rows: Vec<crate::db::crud::ErrorRow>,
     /// 日志加载时间戳（防抖——打开时/手动刷新才拉）
     pub log_loaded_at: std::time::Instant,
+    /// A4: 新建表单动态输入声明（当前模板 inputs——模板切换时刷新）
+    pub form_inputs: Vec<crate::templates::TemplateInput>,
+    /// A4: 新建表单动态值（key→用户输入/默认值）
+    pub form_values: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +78,6 @@ pub enum View {
 }
 
 const NOVEL_TYPES: [&str; 6] = ["玄幻", "都市", "科幻", "历史", "悬疑", "言情"];
-const LENGTHS: [&str; 4] = ["短篇", "中篇", "长篇", "超长篇"];
 /// 模型候选（网关 8082 实测可用——创作主力——2026-09-04 模型选择器）
 pub(crate) const MODELS: [&str; 5] = [
     "ornith-1.5-35b",     // 默认——X3 中文好/工具稳/31tok/s
@@ -136,9 +139,17 @@ impl RoundtableApp {
             show_log_window: false,
             log_rows: Vec::new(),
             log_loaded_at: std::time::Instant::now() - std::time::Duration::from_secs(3600),
+            form_inputs: Vec::new(),
+            form_values: Default::default(),
         };
         app.reset_stale_running(); // 上轮进程残留 running→idle（断点可重开——2026-09-03）
         app.refresh_sessions();
+        // A4: 表单 inputs 从当前模板装载（novel 起步——未来模板切换时刷新）
+        let t = crate::templates::loader::get_template_loaded(
+            "novel",
+            &crate::templates::default_templates_dir(),
+        );
+        app.form_inputs = t.inputs.clone();
         app
     }
 
@@ -177,7 +188,11 @@ impl RoundtableApp {
         }
         let (nt, len, prov) = (
             self.novel_type.clone(),
-            self.length.clone(),
+            // A4: 动态表单值优先——form_values["length"]（模板 inputs 渲染），回退旧固定字段
+            self.form_values
+                .get("length")
+                .cloned()
+                .unwrap_or_else(|| self.length.clone()),
             self.provider.clone(),
         );
         let id = format!("rt_{}", chrono_now());
@@ -494,14 +509,37 @@ impl RoundtableApp {
                 }
             });
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label("篇幅：");
-                for l in LENGTHS {
-                    if ui.selectable_label(self.length == l, l).clicked() {
-                        self.length = l.to_string();
+            // A4: inputs 动态渲染（模板声明驱动——不再写死篇幅行；novel 模板 inputs=length）
+            for inp in &self.form_inputs {
+                ui.horizontal(|ui| {
+                    ui.label(format!("{}：", inp.label));
+                    if inp.options.is_empty() {
+                        // 自由文本输入
+                        let buf = self
+                            .form_values
+                            .entry(inp.key.clone())
+                            .or_insert_with(|| inp.default.clone().unwrap_or_default());
+                        ui.add(
+                            egui::TextEdit::singleline(buf)
+                                .hint_text(&inp.label)
+                                .desired_width(200.0),
+                        );
+                    } else {
+                        let cur = self.form_values.entry(inp.key.clone()).or_insert_with(|| {
+                            inp.default
+                                .clone()
+                                .or_else(|| inp.options.first().cloned())
+                                .unwrap_or_default()
+                        });
+                        for opt in &inp.options {
+                            if ui.selectable_label(*cur == *opt, opt).clicked() {
+                                *cur = opt.clone();
+                            }
+                        }
                     }
-                }
-            });
+                });
+                ui.add_space(4.0);
+            }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 ui.label("模型：");
