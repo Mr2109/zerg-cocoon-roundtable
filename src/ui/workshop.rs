@@ -403,6 +403,9 @@ pub fn workshop_view(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
                 ui.weak(RichText::new(t).small());
             }
         });
+        // C4d: AI 建/改流（需求输入+validate-loop 后台回路——结果出提议卡片）
+        crate::ui::builder::builder_ui(app, ui);
+        ui.separator();
         // tab 切换
         ui.horizontal(|ui| {
             ui.selectable_value(&mut app.workshop.tab, 0, "📝 代码");

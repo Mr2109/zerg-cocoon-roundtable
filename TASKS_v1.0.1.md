@@ -87,10 +87,12 @@
 - mpsc channel 后台线程→UI 帧轮询（try_recv 非阻塞）
 - 验收：✅ 61 测试全过——手工验收随部署
 
-### C2 ⬜ AI 建流回路（本期重心）
-- 规划=圆桌讨论（需求→角色团辩论出结构化方案）+ skill 检索注入（kb 体系）
-- 确认卡（Mermaid 图+人话步骤）→ 生成 flow.json → validate-loop（≤10 次+重复指纹熔断 3 次）
-- 验收：一句需求让 AI 建一条流并跑通
+### C4d ✅ AI 建流回路接工坊（2026-09-04）
+- builder.rs（新）：需求输入 → AI 规划（单轮方案说明）→ 生成 flow.json（GEN_SYSTEM 内嵌 schema+规则——剥 markdown 代码块）→ validate-loop（≤10 次对齐 n8n + 重复指纹熔断 3 次——错误清单回喂）
+- 双模式：工坊空=AI 建流（从零）；有草稿=AI 修改当前流（基线 JSON 进 prompt）
+- 结果→collab.propose() 出 diff 提议卡片——人采纳/拒绝（C4c 通道）——全链同一装载器
+- 后台 rt.spawn + mpsc→UI 帧轮询（try_recv 非阻塞——UI 不卡）
+- 验收：✅ 67 测试全过（代码块剥离/错误格式化）——真调验收：工坊输需求点「🤖 AI 建流」实测
 
 ### C3 ⬜ 画布编辑 + 模板库
 - 拖拽/连线/属性面板写回 flow.json；模板库列表/复制/删除/导入导出

@@ -12,6 +12,7 @@ use crate::ui::session::SessionRuntime;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
+pub mod builder;
 pub mod chapter;
 pub mod collab;
 pub mod session;
@@ -80,6 +81,8 @@ pub struct RoundtableApp {
     pub show_workshop: bool,
     /// C4c: 协作者状态（AI 提议卡片+变更流水）
     pub collab: crate::ui::collab::Collab,
+    /// C4d: AI 建流回路状态
+    pub flow_builder: crate::ui::builder::Builder,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -159,6 +162,7 @@ impl RoundtableApp {
             workshop: crate::ui::workshop::Workshop::new(),
             show_workshop: false,
             collab: crate::ui::collab::Collab::new(),
+            flow_builder: crate::ui::builder::Builder::new(),
         };
         app.reset_stale_running(); // 上轮进程残留 running→idle（断点可重开——2026-09-03）
         app.refresh_sessions();
