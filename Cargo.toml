@@ -1,6 +1,6 @@
 [package]
 name = "zerg-roundtable"
-version = "0.1.0"
+version = "1.0.1"
 edition = "2021"
 description = "圆桌派——群 AI 讨论平台（zerg-cocoon 第一个茧）——Rust egui 集装箱"
 license = "MIT"

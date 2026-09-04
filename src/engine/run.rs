@@ -4,10 +4,10 @@
 //! 块顺序由模板 blocks 决定（引擎通用——不知道小说）
 
 use crate::ai::AiMessage;
-use rusqlite::params;
 use crate::db::pool::Db;
 use crate::engine::discussion::{process_block, BoxAi, DiscussionState};
 use crate::templates::{Block, ProjectTemplate};
+use rusqlite::params;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -30,7 +30,11 @@ struct StopGuard<'a> {
 
 #[async_trait::async_trait]
 impl crate::ai::AiProvider for StopGuard<'_> {
-    async fn chat(&self, msgs: &[AiMessage], max_tokens: i64) -> Result<crate::ai::AiReply, crate::ai::AiError> {
+    async fn chat(
+        &self,
+        msgs: &[AiMessage],
+        max_tokens: i64,
+    ) -> Result<crate::ai::AiReply, crate::ai::AiError> {
         if self.stop.load(Ordering::Relaxed) {
             return Err(crate::ai::AiError::Api("已停止（用户点停止）".into()));
         }
@@ -69,8 +73,11 @@ pub async fn run_discussion(
     );
     let mut ctx = String::new();
     let mut locked_names: Vec<String> = Vec::new();
-    let all_templates = db.get_templates(sid, None).await.map_err(|e| e.to_string())?;
-    for blk in tmpl.blocks {
+    let all_templates = db
+        .get_templates(sid, None)
+        .await
+        .map_err(|e| e.to_string())?;
+    for blk in tmpl.blocks.iter() {
         let mut fields: HashMap<String, String> = HashMap::new();
         let mut is_locked = false;
         for t in &all_templates {
@@ -85,7 +92,11 @@ pub async fn run_discussion(
         }
         if is_locked {
             locked_names.push(blk.name.clone());
-            ctx.push_str(&format!("\n【{}】{}\n", blk.name, fill_fm(&blk.fm, &blk.fields, &fields)));
+            ctx.push_str(&format!(
+                "\n【{}】{}\n",
+                blk.name,
+                fill_fm(&blk.fm, &blk.fields, &fields)
+            ));
         }
     }
     state.locked_context = ctx;
@@ -94,23 +105,47 @@ pub async fn run_discussion(
     // 断点位置在已锁块之后？——current_block 已推进——从 current_block 起跑
     let blocks: Vec<&Block> = tmpl.blocks.iter().skip(start_block).collect();
     if blocks.is_empty() {
-        db.update_session_progress(sid, total as i64, "completed").await.map_err(|e| e.to_string())?;
-        return Ok(RunSummary { sid: sid.into(), started_at: 0, blocks_done: total, blocks_total: total, completed: true });
+        db.update_session_progress(sid, total as i64, "completed")
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(RunSummary {
+            sid: sid.into(),
+            started_at: 0,
+            blocks_done: total,
+            blocks_total: total,
+            completed: true,
+        });
     }
 
-    db.update_session_progress(sid, start_block as i64, "running").await.map_err(|e| e.to_string())?;
-    let started_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as usize).unwrap_or(0);
+    db.update_session_progress(sid, start_block as i64, "running")
+        .await
+        .map_err(|e| e.to_string())?;
+    let started_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as usize)
+        .unwrap_or(0);
 
     // AI 包停止守卫——引擎每次 AI 调用前查 stop——响应式停止（不等当前 block 跑完）
-    let guard = StopGuard { inner: ai.as_ref(), stop: stop_flag };
+    let guard = StopGuard {
+        inner: ai.as_ref(),
+        stop: stop_flag,
+    };
 
     let mut done = start_block;
     for (i, blk) in blocks.iter().enumerate() {
         let idx = start_block + i;
         if stop_flag.load(Ordering::Relaxed) {
             // 停止——进度留在当前块——下次续跑
-            db.update_session_progress(sid, idx as i64, "idle").await.map_err(|e| e.to_string())?;
-            return Ok(RunSummary { sid: sid.into(), started_at, blocks_done: done, blocks_total: total, completed: false });
+            db.update_session_progress(sid, idx as i64, "idle")
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(RunSummary {
+                sid: sid.into(),
+                started_at,
+                blocks_done: done,
+                blocks_total: total,
+                completed: false,
+            });
         }
         // 单块运行（质量门禁：D 级重跑 ≤2——评分开时才生效）
         let mut retries = 0;
@@ -131,7 +166,10 @@ pub async fn run_discussion(
                     db.add_message(
                         sid,
                         "系统",
-                        &format!("⏳ {} 质量门禁未过（{worst} 分 D 级），重跑第 {retries} 次", blk.name),
+                        &format!(
+                            "⏳ {} 质量门禁未过（{worst} 分 D 级），重跑第 {retries} 次",
+                            blk.name
+                        ),
                         "system",
                         "{\"gate\":1}",
                     )
@@ -162,12 +200,26 @@ pub async fn run_discussion(
         }
         let _ = outcome;
         done = idx + 1;
-        db.update_session_progress(sid, done as i64, if done >= total { "completed" } else { "running" })
-            .await
-            .map_err(|e| e.to_string())?;
+        db.update_session_progress(
+            sid,
+            done as i64,
+            if done >= total {
+                "completed"
+            } else {
+                "running"
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
     }
     let completed = done >= total;
-    Ok(RunSummary { sid: sid.into(), started_at, blocks_done: done, blocks_total: total, completed })
+    Ok(RunSummary {
+        sid: sid.into(),
+        started_at,
+        blocks_done: done,
+        blocks_total: total,
+        completed,
+    })
 }
 
 /// 块评分（写 DB score——返回字段最差分——Web 门禁 AVG(score>0) 同语义简化最差）
@@ -182,7 +234,10 @@ async fn gate_score_block(
 ) -> Result<i64, String> {
     // 收集该块锁定字段值
     let mut fv = std::collections::HashMap::new();
-    let all = db.get_templates(sid, Some(block_index as i64)).await.map_err(|e| e.to_string())?;
+    let all = db
+        .get_templates(sid, Some(block_index as i64))
+        .await
+        .map_err(|e| e.to_string())?;
     for t in &all {
         if let (Some(fn_), Some(fval)) = (&t.field_name, &t.field_value) {
             if !fval.is_empty() {
@@ -193,11 +248,14 @@ async fn gate_score_block(
     if fv.is_empty() {
         return Ok(100); // 无字段可评——不拦
     }
-    let qr = crate::engine::quality::quality_check(ai, &blk.name, &fv, &state.locked_context).await?;
+    let qr =
+        crate::engine::quality::quality_check(ai, &blk.name, &fv, &state.locked_context).await?;
     let detail = serde_json::json!({ "scores": qr.scores, "grade": qr.grade }).to_string();
     // 全字段写同分（简化——Web 按字段——门禁用 AVG——最差保守）
     for (f, _) in &fv {
-        db.update_template_score(sid, block_index as i64, f, qr.total, &detail).await.map_err(|e| e.to_string())?;
+        db.update_template_score(sid, block_index as i64, f, qr.total, &detail)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     let _ = tmpl;
     Ok(qr.total)
@@ -210,7 +268,9 @@ pub fn fill_fm(fm: &str, fs: &[String], vv: &HashMap<String, String>) -> String 
     for f in fs {
         if let Some(pos) = rest.find("{}") {
             out.push_str(&rest[..pos]);
-            out.push_str(&crate::engine::utils::format_field_value(vv.get(f).cloned().unwrap_or_default().as_str()));
+            out.push_str(&crate::engine::utils::format_field_value(
+                vv.get(f).cloned().unwrap_or_default().as_str(),
+            ));
             rest = &rest[pos + 2..];
         } else {
             break;
@@ -233,7 +293,9 @@ mod tests {
     async fn run_two_blocks_completes() {
         let _ = std::fs::remove_file("/tmp/yz_run1.db");
         let db = Db::open("/tmp/yz_run1.db").await.unwrap();
-        db.create_session("r1", "完整跑", "玄幻", "长篇", "zerg", "novel").await.unwrap();
+        db.create_session("r1", "完整跑", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
         let tmpl = novel::novel_template();
 
         // mock 脚本：每块 草案→引导→5表态→总结（8 响应/块——2 块 16 响应）
@@ -249,7 +311,9 @@ mod tests {
         let refs: Vec<&str> = script.iter().map(|s| s.as_str()).collect();
         let ai: BoxAi = Box::new(MockProvider::new(refs));
         let stop = AtomicBool::new(false);
-        let sum = run_discussion(&db, &ai, &tmpl, "r1", &stop, false).await.unwrap();
+        let sum = run_discussion(&db, &ai, &tmpl, "r1", &stop, false)
+            .await
+            .unwrap();
         assert!(sum.completed, "全块跑完");
         assert_eq!(sum.blocks_done, 13, "模板 13 块全跑");
         assert_eq!(sum.blocks_total, 13);
@@ -269,11 +333,17 @@ mod tests {
     async fn resume_from_block() {
         let _ = std::fs::remove_file("/tmp/yz_run2.db");
         let db = Db::open("/tmp/yz_run2.db").await.unwrap();
-        db.create_session("r2", "断点续跑", "都市", "中篇", "zerg", "novel").await.unwrap();
+        db.create_session("r2", "断点续跑", "都市", "中篇", "zerg", "novel")
+            .await
+            .unwrap();
         // 预置：index0（类型/篇幅）已锁——current_block=1（完成第 1 块）
         let tmpl = novel::novel_template();
-        db.upsert_template("r2", 0, "类型", "玄幻", true, tmpl.blocks[0].name.as_str()).await.unwrap();
-        db.upsert_template("r2", 0, "篇幅", "中篇", true, tmpl.blocks[0].name.as_str()).await.unwrap();
+        db.upsert_template("r2", 0, "类型", "玄幻", true, tmpl.blocks[0].name.as_str())
+            .await
+            .unwrap();
+        db.upsert_template("r2", 0, "篇幅", "中篇", true, tmpl.blocks[0].name.as_str())
+            .await
+            .unwrap();
         db.update_session_progress("r2", 1, "idle").await.unwrap();
 
         // 从 index1（故事核）起跑——只准备故事核脚本（其余块弹尾自动锁）
@@ -287,7 +357,9 @@ mod tests {
         let refs: Vec<&str> = script.iter().map(|s| s.as_str()).collect();
         let ai: BoxAi = Box::new(MockProvider::new(refs));
         let stop = AtomicBool::new(false);
-        let sum = run_discussion(&db, &ai, &tmpl, "r2", &stop, false).await.unwrap();
+        let sum = run_discussion(&db, &ai, &tmpl, "r2", &stop, false)
+            .await
+            .unwrap();
         assert!(sum.completed);
         // 从 current_block=1 续跑——index1 起 12 块跑完——current_block=13
         let s = db.get_session("r2").await.unwrap().unwrap();
@@ -295,7 +367,10 @@ mod tests {
         assert_eq!(s.status, "completed");
         // 预置 index0 值未被覆盖（续跑从 index1 起——index0 不重跑）
         let t = db.get_templates("r2", Some(0)).await.unwrap();
-        assert!(t.iter().any(|x| x.field_value.as_deref() == Some("玄幻")), "预置类型保留");
+        assert!(
+            t.iter().any(|x| x.field_value.as_deref() == Some("玄幻")),
+            "预置类型保留"
+        );
         std::fs::remove_file("/tmp/yz_run2.db").ok();
     }
 
@@ -306,7 +381,9 @@ mod tests {
         let db = Db::open("/tmp/yz_run3.db").await.unwrap();
         // 预置 index0 完成（跳过类型块——减少脚本轮数）——但门禁只测一块完整跑：
         // 直接从 index0 起跑一块（故事核 index1 前是类型块 index0——类型块字段少）
-        db.create_session("r3", "门禁", "玄幻", "长篇", "zerg", "novel").await.unwrap();
+        db.create_session("r3", "门禁", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
         let tmpl = novel::novel_template();
         // 只跑第一块（index0 类型块）——跑完即完成（预置 current_block=1 让它只跑 index1?）
         // 简化：预置 index0 完成——只跑 index1（故事核）——但 13 块会全跑……
@@ -315,28 +392,38 @@ mod tests {
         // index0（类型块）草案流（会被跑——因为 current_block=0）
         script.push("草案1：\n类型:玄幻\n篇幅:长篇\n\n草案2：\n类型:科幻\n篇幅:长篇\n\n草案3：\n类型:都市\n篇幅:长篇".to_string());
         script.push("请作者表态。".to_string());
-        for _ in 0..5 { script.push("草案1：满意。".to_string()); }
+        for _ in 0..5 {
+            script.push("草案1：满意。".to_string());
+        }
         script.push("选中草案1。".to_string());
         script.push(r#"{"scores":{"一致性":5,"完整性":4,"创意性":3,"可实现性":4},"total":55,"grade":"D","strengths":[],"weaknesses":["冲突不足"],"improvement_suggestions":"加强冲突"}"#.to_string());
         // 重跑 index0
         script.push("草案1：\n类型:玄幻\n篇幅:长篇\n\n草案2：\n类型:科幻\n篇幅:长篇\n\n草案3：\n类型:都市\n篇幅:长篇".to_string());
         script.push("请作者表态。".to_string());
-        for _ in 0..5 { script.push("草案1：满意。".to_string()); }
+        for _ in 0..5 {
+            script.push("草案1：满意。".to_string());
+        }
         script.push("选中草案1。".to_string());
         script.push(r#"{"scores":{"一致性":5,"完整性":4,"创意性":4,"可实现性":4},"total":86,"grade":"B","strengths":["冲突明确"],"weaknesses":[],"improvement_suggestions":""}"#.to_string());
         let refs: Vec<&str> = script.iter().map(|s| s.as_str()).collect();
         let ai: BoxAi = Box::new(MockProvider::new(refs));
         let stop = AtomicBool::new(false);
-        let sum = run_discussion(&db, &ai, &tmpl, "r3", &stop, true).await.unwrap();
+        let sum = run_discussion(&db, &ai, &tmpl, "r3", &stop, true)
+            .await
+            .unwrap();
         assert!(sum.completed, "全跑完（后续块弹尾自动锁）");
         let msgs = db.get_all_messages("r3").await.unwrap();
-        let gate_msg = msgs.iter().find(|m| m.content.as_deref().unwrap_or("").contains("质量门禁未过"));
+        let gate_msg = msgs
+            .iter()
+            .find(|m| m.content.as_deref().unwrap_or("").contains("质量门禁未过"));
         assert!(gate_msg.is_some(), "门禁消息存在");
         // 重跑后该块字段有分（86——重跑后的模板 score）
         let t = db.get_templates("r3", Some(0)).await.unwrap();
-        assert!(t.iter().any(|x| x.score >= 80), "重跑后评分通过——实际分数: {:?}", t.iter().map(|x| x.score).collect::<Vec<_>>());
+        assert!(
+            t.iter().any(|x| x.score >= 80),
+            "重跑后评分通过——实际分数: {:?}",
+            t.iter().map(|x| x.score).collect::<Vec<_>>()
+        );
         std::fs::remove_file("/tmp/yz_run3.db").ok();
     }
-
-
 }

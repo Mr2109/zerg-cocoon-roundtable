@@ -11,9 +11,47 @@ pub struct Block {
     pub name: String,
     pub fields: Vec<String>,
     pub fm: String, // 字段格式模板（{} 占位）
+    /// 节点类型（v1.0.1 B 案——A 期 novel 全是 discussion；serde 默认向后兼容旧 JSON）
+    #[serde(default = "default_kind")]
+    pub kind: String,
+    /// 讨论引导文案（BLOCK_DESC——v1.0.1 从 Web 版逐字搬入声明文件）
+    #[serde(default)]
+    pub desc: String,
+    /// 跳转声明（v1.0.1 B2 DAG——空=隐式顺序）
+    #[serde(default)]
+    pub next: Vec<String>,
+    /// human_gate 档位（none|key_points|every_step——默认 none 全自动）
+    #[serde(default = "default_human_gate")]
+    pub human_gate: String,
+    /// 节点级模型覆盖（空=用会话 provider——模型分级）
+    #[serde(default)]
+    pub model: String,
+}
+fn default_kind() -> String {
+    "discussion".into()
+}
+fn default_human_gate() -> String {
+    "none".into()
 }
 
-/// 作者角色（讨论参与者）
+impl Block {
+    /// 内置模板字面量辅助——13 处 novel Block 补默认扩展字段（kind/desc/next/human_gate/model）
+    fn novel(index: usize, name: &str, fields: &[&str], fm: &str) -> Self {
+        Block {
+            index,
+            name: name.into(),
+            fields: fields.iter().map(|s| s.to_string()).collect(),
+            fm: fm.into(),
+            kind: default_kind(),
+            desc: String::new(),
+            next: Vec::new(),
+            human_gate: default_human_gate(),
+            model: String::new(),
+        }
+    }
+}
+
+/// 作者角色（讨论参与者——v1.0.1 角色团变长 1-8——Mr2109）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Author {
     pub name: String,
@@ -30,60 +68,191 @@ pub struct Moderator {
 }
 
 /// 小说项目 13 Block（Web 版 BLOCKS 逐字对齐——LazyLock: const 不能堆分配 String）
-pub static NOVEL_BLOCKS: std::sync::LazyLock<Vec<Block>> = std::sync::LazyLock::new(|| vec![
-    Block { index: 0, name: "类型".into(), fields: vec!["类型".into(), "篇幅".into()], fm: "## 类型:{}\n## 篇幅:{}".into() },
-    Block { index: 1, name: "故事核".into(), fields: vec!["故事核".into()], fm: "## 故事核:{}".into() },
-    Block { index: 2, name: "读者定位与基础设定".into(), fields: vec!["核心读者画像".into(), "市场锚点".into(), "风格基调".into(), "核心卖点".into(), "类型标签".into()], fm: "## 核心读者画像:{}\n## 市场锚点:{}\n## 风格基调:{}\n## 核心卖点:{}\n## 类型标签:{}".into() },
-    Block { index: 3, name: "世界观".into(), fields: vec!["时代背景".into(), "地理格局".into(), "社会结构".into(), "硬规则限制".into(), "软文化细节".into()], fm: "## 时代背景:{}\n## 地理格局:{}\n## 社会结构:{}\n## 硬规则限制:{}\n## 软文化细节:{}".into() },
-    Block { index: 4, name: "主角设定".into(), fields: vec!["主角列表".into()], fm: "## 主角列表:\n{}".into() },
-    Block { index: 5, name: "核心冲突".into(), fields: vec!["核心矛盾".into(), "冲突类型".into(), "贯穿全书的问题".into(), "全书主线".into()], fm: "## 核心矛盾:{}\n## 冲突类型:{}\n## 贯穿全书的问题:{}\n## 全书主线:{}".into() },
-    Block { index: 6, name: "故事大纲".into(), fields: vec!["大纲".into()], fm: "## 大纲:\n{}".into() },
-    Block { index: 7, name: "暂定书名".into(), fields: vec!["书名".into()], fm: "## 书名:{}".into() },
-    Block { index: 8, name: "卷结构与衔接".into(), fields: vec!["总字数".into(), "卷数与分配".into()], fm: "## 总字数:{}\n## 卷数与分配:{}".into() },
-    Block { index: 9, name: "骨架填肉".into(), fields: vec!["填充内容".into(), "填肉大纲".into(), "配角列表".into()], fm: "## 填充内容:{}\n## 填肉大纲:{}\n## 配角列表:{}".into() },
-    Block { index: 10, name: "逐卷大纲".into(), fields: vec!["卷大纲".into(), "新增角色".into(), "叙事意图".into(), "情感节拍".into(), "关键场景".into()], fm: "## 卷大纲:{}\n## 新增角色:{}\n## 叙事意图:{}\n## 情感节拍:{}\n## 关键场景:{}".into() },
-    Block { index: 11, name: "逐章大纲".into(), fields: vec!["章节大纲".into()], fm: "## 章节大纲:{}".into() },
-    Block { index: 12, name: "正文创作".into(), fields: vec!["正文内容".into()], fm: "## 正文内容:{}".into() },
-]);
+/// A1: 用 Block::novel 辅助——扩展字段（kind/desc/next/human_gate/model）取默认——内容资产逐字不动
+pub static NOVEL_BLOCKS: std::sync::LazyLock<Vec<Block>> = std::sync::LazyLock::new(|| {
+    vec![
+        Block::novel(0, "类型", &["类型", "篇幅"], "## 类型:{}\n## 篇幅:{}"),
+        Block::novel(1, "故事核", &["故事核"], "## 故事核:{}"),
+        Block::novel(
+            2,
+            "读者定位与基础设定",
+            &[
+                "核心读者画像",
+                "市场锚点",
+                "风格基调",
+                "核心卖点",
+                "类型标签",
+            ],
+            "## 核心读者画像:{}\n## 市场锚点:{}\n## 风格基调:{}\n## 核心卖点:{}\n## 类型标签:{}",
+        ),
+        Block::novel(
+            3,
+            "世界观",
+            &[
+                "时代背景",
+                "地理格局",
+                "社会结构",
+                "硬规则限制",
+                "软文化细节",
+            ],
+            "## 时代背景:{}\n## 地理格局:{}\n## 社会结构:{}\n## 硬规则限制:{}\n## 软文化细节:{}",
+        ),
+        Block::novel(4, "主角设定", &["主角列表"], "## 主角列表:\n{}"),
+        Block::novel(
+            5,
+            "核心冲突",
+            &["核心矛盾", "冲突类型", "贯穿全书的问题", "全书主线"],
+            "## 核心矛盾:{}\n## 冲突类型:{}\n## 贯穿全书的问题:{}\n## 全书主线:{}",
+        ),
+        Block::novel(6, "故事大纲", &["大纲"], "## 大纲:\n{}"),
+        Block::novel(7, "暂定书名", &["书名"], "## 书名:{}"),
+        Block::novel(
+            8,
+            "卷结构与衔接",
+            &["总字数", "卷数与分配"],
+            "## 总字数:{}\n## 卷数与分配:{}",
+        ),
+        Block::novel(
+            9,
+            "骨架填肉",
+            &["填充内容", "填肉大纲", "配角列表"],
+            "## 填充内容:{}\n## 填肉大纲:{}\n## 配角列表:{}",
+        ),
+        Block::novel(
+            10,
+            "逐卷大纲",
+            &["卷大纲", "新增角色", "叙事意图", "情感节拍", "关键场景"],
+            "## 卷大纲:{}\n## 新增角色:{}\n## 叙事意图:{}\n## 情感节拍:{}\n## 关键场景:{}",
+        ),
+        Block::novel(11, "逐章大纲", &["章节大纲"], "## 章节大纲:{}"),
+        Block::novel(12, "正文创作", &["正文内容"], "## 正文内容:{}"),
+    ]
+});
 
 /// 5 作者 + 主持人（Web 版 AUTHORS/MODERATOR 逐字对齐）
-pub static NOVEL_AUTHORS: std::sync::LazyLock<Vec<Author>> = std::sync::LazyLock::new(|| vec![
-    Author { name: "司世".into(), zi: "字观止".into(), specialty: "世界观派".into(), description: "负责设定规则/文明结构".into() },
-    Author { name: "司人".into(), zi: "字知微".into(), specialty: "人物派".into(), description: "负责角色心理/对话可信度".into() },
-    Author { name: "司局".into(), zi: "字守衡".into(), specialty: "结构派".into(), description: "负责情节框架/伏笔节奏".into() },
-    Author { name: "司言".into(), zi: "字琢之".into(), specialty: "文笔派".into(), description: "负责语言质感/描写".into() },
-    Author { name: "司情".into(), zi: "字动心".into(), specialty: "共情派".into(), description: "负责开场引力/代入感".into() },
-]);
+pub static NOVEL_AUTHORS: std::sync::LazyLock<Vec<Author>> = std::sync::LazyLock::new(|| {
+    vec![
+        Author {
+            name: "司世".into(),
+            zi: "字观止".into(),
+            specialty: "世界观派".into(),
+            description: "负责设定规则/文明结构".into(),
+        },
+        Author {
+            name: "司人".into(),
+            zi: "字知微".into(),
+            specialty: "人物派".into(),
+            description: "负责角色心理/对话可信度".into(),
+        },
+        Author {
+            name: "司局".into(),
+            zi: "字守衡".into(),
+            specialty: "结构派".into(),
+            description: "负责情节框架/伏笔节奏".into(),
+        },
+        Author {
+            name: "司言".into(),
+            zi: "字琢之".into(),
+            specialty: "文笔派".into(),
+            description: "负责语言质感/描写".into(),
+        },
+        Author {
+            name: "司情".into(),
+            zi: "字动心".into(),
+            specialty: "共情派".into(),
+            description: "负责开场引力/代入感".into(),
+        },
+    ]
+});
 
-pub static NOVEL_MODERATOR: std::sync::LazyLock<Moderator> = std::sync::LazyLock::new(|| Moderator {
-    name: "主持人".into(),
+pub static NOVEL_MODERATOR: std::sync::LazyLock<Moderator> =
+    std::sync::LazyLock::new(|| Moderator {
+        name: "主持人".into(),
         role: "引导讨论、整合意见".into(),
     });
 
-/// 项目模板注册（引擎按 project_type 取——未来剧本/方案 = 新增注册——引擎不改）
+/// 项目模板注册（引擎按 project_type 取——v1.0.1 A1 去 static 化：运行时装载 flow.json）
+/// 兼容期双轨：编译期内置（novel）+ 运行时声明文件（templates/*.flow.json）——文件优先
 #[derive(Debug, Clone)]
 pub struct ProjectTemplate {
-    pub project_type: &'static str,
-    pub blocks: &'static [Block],
-    pub authors: &'static [Author],
-    pub moderator: &'static Moderator,
+    pub project_type: String,
+    pub blocks: Vec<Block>,
+    pub authors: Vec<Author>,
+    pub moderator: Moderator,
+    /// 会话创建时用户要填的输入声明（A4 表单动态渲染——v1.0.1）
+    pub inputs: Vec<TemplateInput>,
+    /// 门禁默认规则（节点可覆盖——v1.0.1）
+    pub gate: GateRule,
+}
+
+/// 模板输入声明（新建会话表单字段）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TemplateInput {
+    pub key: String,
+    pub label: String,
+    #[serde(default)]
+    pub required: bool,
+    #[serde(default)]
+    pub options: Vec<String>,
+    #[serde(default)]
+    pub default: Option<String>,
+}
+
+/// 门禁规则（quality_check 数值判定参数）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GateRule {
+    #[serde(default = "default_pass_score")]
+    pub pass_score: i64,
+    #[serde(default = "default_max_cycle")]
+    pub max_cycle: u32,
+}
+fn default_pass_score() -> i64 {
+    80
+}
+fn default_max_cycle() -> u32 {
+    3
+}
+impl Default for GateRule {
+    fn default() -> Self {
+        GateRule {
+            pass_score: default_pass_score(),
+            max_cycle: default_max_cycle(),
+        }
+    }
 }
 
 pub fn novel_template() -> ProjectTemplate {
     ProjectTemplate {
-        project_type: "novel",
-        blocks: &NOVEL_BLOCKS,
-        authors: &NOVEL_AUTHORS,
-        moderator: &NOVEL_MODERATOR,
+        project_type: "novel".into(),
+        blocks: NOVEL_BLOCKS.clone(),
+        authors: NOVEL_AUTHORS.clone(),
+        moderator: NOVEL_MODERATOR.clone(),
+        inputs: vec![TemplateInput {
+            key: "length".into(),
+            label: "篇幅".into(),
+            required: true,
+            options: vec!["短篇".into(), "中篇".into(), "长篇".into(), "超长篇".into()],
+            default: Some("长篇".into()),
+        }],
+        gate: GateRule::default(),
     }
 }
 
-/// 取模板（未知类型回退 novel）
+/// 取模板（未知类型回退 novel——A2 后改为先查声明文件）
 pub fn get_template(project_type: &str) -> ProjectTemplate {
     match project_type {
         "novel" => novel_template(),
         _ => novel_template(),
     }
+}
+
+/// 编译期回退（loader 装载失败时兜底——未知类型一律回 novel）
+pub fn novel_template_fallback(project_type: &str) -> ProjectTemplate {
+    let mut t = novel_template();
+    if project_type != "novel" {
+        t.project_type = project_type.to_string();
+    }
+    t
 }
 
 /// 按名找 Block
@@ -113,6 +282,6 @@ mod tests {
         // 模板取用
         let t = get_template("novel");
         assert_eq!(t.blocks.len(), 13);
-        assert_eq!(find_block(t.blocks, "世界观").unwrap().fields.len(), 5);
+        assert_eq!(find_block(&t.blocks, "世界观").unwrap().fields.len(), 5);
     }
 }
