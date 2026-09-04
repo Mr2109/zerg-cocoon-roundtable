@@ -26,14 +26,26 @@ pub fn spawn_generate_outline(app: &mut RoundtableApp, sid: &str) {
     let done_task = done.clone();
     app.rt.spawn(async move {
         let ai = make_ai(&db);
-        let _ = crate::engine::chapters::generate_chapters(&db, &ai, &sid_owned, DEFAULT_CHAPTERS, VOLUME_SIZE).await;
+        let _ = crate::engine::chapters::generate_chapters(
+            &db,
+            &ai,
+            &sid_owned,
+            DEFAULT_CHAPTERS,
+            VOLUME_SIZE,
+        )
+        .await;
         done_task.store(true, Ordering::Relaxed);
     });
     app._outline_done = Some(done);
 }
 
 /// 后台生成正文：正文 → 角色状态 → 向量 → 评审（Web generate_chapter_content 全链）
-pub fn spawn_generate_content(app: &mut RoundtableApp, sid: &str, volume: i64, chapter_number: i64) {
+pub fn spawn_generate_content(
+    app: &mut RoundtableApp,
+    sid: &str,
+    volume: i64,
+    chapter_number: i64,
+) {
     if app.gen_busy {
         return;
     }
@@ -44,14 +56,28 @@ pub fn spawn_generate_content(app: &mut RoundtableApp, sid: &str, volume: i64, c
     let done_task = done.clone();
     app.rt.spawn(async move {
         let ai = make_ai(&db);
-        let r = crate::engine::chapters::generate_chapter_content(&db, &ai, &sid_owned, volume, chapter_number).await;
+        let r = crate::engine::chapters::generate_chapter_content(
+            &db,
+            &ai,
+            &sid_owned,
+            volume,
+            chapter_number,
+        )
+        .await;
         if let Ok(cid) = r {
             // 角色状态 + 向量 + 评审（Web 870 自动链）
             if let Ok(text) = db.get_chapter_content_text(cid).await {
-                let _ = crate::engine::memory::update_character_states(&db, &sid_owned, &text, chapter_number).await;
+                let _ = crate::engine::memory::update_character_states(
+                    &db,
+                    &sid_owned,
+                    &text,
+                    chapter_number,
+                )
+                .await;
                 let _ = crate::engine::memory::embed_chapter(&db, &sid_owned, cid, &text).await;
             }
-            let _ = crate::engine::review::review_chapter_content(&db, &ai, &sid_owned, cid, true).await;
+            let _ = crate::engine::review::review_chapter_content(&db, &ai, &sid_owned, cid, true)
+                .await;
         }
         done_task.store(true, Ordering::Relaxed);
     });
@@ -63,15 +89,24 @@ fn make_ai(_db: &crate::db::pool::Db) -> Box<crate::engine::discussion::BoxAi> {
     if crate::ui::ai_connected() {
         Box::new(Box::new(crate::ai::zerg::ZergProvider::from_env()))
     } else {
-        Box::new(Box::new(crate::ai::mock::MockProvider::new(Vec::<&str>::new())))
+        Box::new(Box::new(crate::ai::mock::MockProvider::new(
+            Vec::<&str>::new(),
+        )))
     }
 }
 
 /// Chapter 视图
 pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
-    let chapters = app.rt.block_on(app.db.get_chapters(sid)).ok().unwrap_or_default();
+    let chapters = app
+        .rt
+        .block_on(app.db.get_chapters(sid))
+        .ok()
+        .unwrap_or_default();
     // 选中章数据
-    let sel_ch = chapters.iter().find(|c| c.id == app.sel_chapter_id).cloned();
+    let sel_ch = chapters
+        .iter()
+        .find(|c| c.id == app.sel_chapter_id)
+        .cloned();
     // 正文编辑缓冲（按章 id 缓存——编辑后保存）
     let mut edit_buf: String = app
         .rt
@@ -86,21 +121,37 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
             ui.separator();
             // busy 复位检查
             if app.gen_busy {
-                let outline_done = app._outline_done.as_ref().map(|d| d.load(Ordering::Relaxed)).unwrap_or(false);
-                let content_done = app._content_done.as_ref().map(|d| d.load(Ordering::Relaxed)).unwrap_or(false);
+                let outline_done = app
+                    ._outline_done
+                    .as_ref()
+                    .map(|d| d.load(Ordering::Relaxed))
+                    .unwrap_or(false);
+                let content_done = app
+                    ._content_done
+                    .as_ref()
+                    .map(|d| d.load(Ordering::Relaxed))
+                    .unwrap_or(false);
                 if outline_done || content_done {
                     app.gen_busy = false;
                     app._outline_done = None;
                     app._content_done = None;
                 }
             }
-            let btn = if app.gen_busy { "⏳ 生成中…" } else { "📋 生成章节大纲" };
+            let btn = if app.gen_busy {
+                "⏳ 生成中…"
+            } else {
+                "📋 生成章节大纲"
+            };
             crate::ui::ai_warn(ui);
             if ui.button(btn).clicked() && !app.gen_busy {
                 spawn_generate_outline(app, sid);
             }
             if chapters.is_empty() {
-                ui.label(RichText::new("（先生成大纲——AI 规划 10 章）").weak().small());
+                ui.label(
+                    RichText::new("（先生成大纲——AI 规划 10 章）")
+                        .weak()
+                        .small(),
+                );
             }
         });
     });
@@ -123,10 +174,21 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
                 for ch in chapters.iter().filter(|c| c.volume == vol) {
                     let has_content = ch.content.clone().unwrap_or_default().len() > 50;
                     let mark = if has_content { "✓" } else { "·" };
-                    let label = format!("{mark} 第{}章 {}", ch.chapter_number, ch.title.clone().unwrap_or_default());
-                    if ui.selectable_label(app.sel_chapter_id == ch.id, label).clicked() {
+                    let label = format!(
+                        "{mark} 第{}章 {}",
+                        ch.chapter_number,
+                        ch.title.clone().unwrap_or_default()
+                    );
+                    if ui
+                        .selectable_label(app.sel_chapter_id == ch.id, label)
+                        .clicked()
+                    {
                         app.sel_chapter_id = ch.id;
-                        edit_buf = app.rt.block_on(app.db.get_chapter_content_text(ch.id)).ok().unwrap_or_default();
+                        edit_buf = app
+                            .rt
+                            .block_on(app.db.get_chapter_content_text(ch.id))
+                            .ok()
+                            .unwrap_or_default();
                     }
                     ui.add_space(1.0);
                 }
@@ -140,9 +202,17 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
             ui.add_space(4.0);
             ui.label(RichText::new("评审发现").strong());
             ui.separator();
-            let reviews = app.rt.block_on(app.db.get_chapter_reviews(app.sel_chapter_id)).ok().unwrap_or_default();
+            let reviews = app
+                .rt
+                .block_on(app.db.get_chapter_reviews(app.sel_chapter_id))
+                .ok()
+                .unwrap_or_default();
             if reviews.is_empty() {
-                ui.label(RichText::new("（生成正文后评审——发现自动显示）").weak().small());
+                ui.label(
+                    RichText::new("（生成正文后评审——发现自动显示）")
+                        .weak()
+                        .small(),
+                );
             }
             for (pipeline, severity, issue, _loc) in &reviews {
                 let color = match severity.as_str() {
@@ -150,7 +220,11 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
                     "major" => Color32::from_rgb(230, 160, 90),
                     _ => Color32::from_rgb(200, 200, 130),
                 };
-                ui.label(RichText::new(format!("[{pipeline}·{severity}]")).small().color(color));
+                ui.label(
+                    RichText::new(format!("[{pipeline}·{severity}]"))
+                        .small()
+                        .color(color),
+                );
                 let t: String = issue.chars().take(120).collect();
                 ui.label(RichText::new(t).small());
                 ui.add_space(3.0);
@@ -166,7 +240,14 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
             }
             Some(ch) => {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(format!("第{}章 {}", ch.chapter_number, ch.title.clone().unwrap_or_default())).strong());
+                    ui.label(
+                        RichText::new(format!(
+                            "第{}章 {}",
+                            ch.chapter_number,
+                            ch.title.clone().unwrap_or_default()
+                        ))
+                        .strong(),
+                    );
                     ui.separator();
                     let has_content = ch.content.clone().unwrap_or_default().len() > 50;
                     let btn = if app.gen_busy {
@@ -180,7 +261,9 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
                         spawn_generate_content(app, sid, ch.volume, ch.chapter_number);
                     }
                     if ui.button("💾 保存编辑").clicked() {
-                        let _ = app.rt.block_on(app.db.update_chapter_content(sid, ch.id, &edit_buf));
+                        let _ = app
+                            .rt
+                            .block_on(app.db.update_chapter_content(sid, ch.id, &edit_buf));
                     }
                 });
                 ui.separator();
@@ -190,7 +273,11 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
                         ui.label(RichText::new(&outline).small());
                     });
                 }
-                ui.label(RichText::new("正文（编辑后保存——生成会覆盖）").weak().small());
+                ui.label(
+                    RichText::new("正文（编辑后保存——生成会覆盖）")
+                        .weak()
+                        .small(),
+                );
                 egui::ScrollArea::vertical()
                     .max_height(ui.available_height() - 20.0)
                     .show(ui, |ui| {
@@ -204,5 +291,6 @@ pub fn chapter_view(app: &mut RoundtableApp, ui: &mut egui::Ui, sid: &str) {
             }
         }
     });
-    ui.ctx().request_repaint_after(std::time::Duration::from_millis(800));
+    ui.ctx()
+        .request_repaint_after(std::time::Duration::from_millis(800));
 }

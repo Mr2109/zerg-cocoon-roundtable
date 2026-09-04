@@ -5,7 +5,9 @@ use zerg_roundtable::ui::RoundtableApp;
 
 fn main() -> Result<(), eframe::Error> {
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]).with_title("圆桌派"),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 800.0])
+            .with_title("圆桌派"),
         ..Default::default()
     };
     eframe::run_native(

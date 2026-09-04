@@ -15,12 +15,23 @@ pub async fn generate_chapters(
     num_chapters: i64,
     chapters_per_volume: i64,
 ) -> Result<usize, String> {
-    let session = db.get_session(sid).await.map_err(|e| e.to_string())?.ok_or_else(|| format!("会话不存在 {sid}"))?;
-    let locked = db.get_locked_field_values(sid).await.map_err(|e| e.to_string())?;
+    let session = db
+        .get_session(sid)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("会话不存在 {sid}"))?;
+    let locked = db
+        .get_locked_field_values(sid)
+        .await
+        .map_err(|e| e.to_string())?;
     if locked.is_empty() {
         return Err("没有已锁定设定——先跑讨论".into());
     }
-    let context = locked.iter().map(|(k, v)| format!("{k}:\n{v}")).collect::<Vec<_>>().join("\n");
+    let context = locked
+        .iter()
+        .map(|(k, v)| format!("{k}:\n{v}"))
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let chapter_prompt = format!(
         "你是圆桌派的主持人。已锁定内容：\n{context}\n\n请生成 {num_chapters} 章的详细大纲。格式要求：\n每章包含：\n- 章节标题\n- 大纲内容（200-500字）\n- 关键角色\n- 情绪基调\n\n按卷组织章节，每卷 {chapters_per_volume} 章。"
@@ -54,11 +65,17 @@ pub async fn generate_chapters(
         if is_header {
             // 存前一章
             if seen_header && !title.is_empty() {
-                db.create_chapter(sid, volume, chapter_num, &title, &outline_lines.join("\n")).await.map_err(|e| e.to_string())?;
+                db.create_chapter(sid, volume, chapter_num, &title, &outline_lines.join("\n"))
+                    .await
+                    .map_err(|e| e.to_string())?;
                 created += 1;
             }
             let sep = if line.contains(':') { ':' } else { '：' };
-            title = line.split(sep).nth(1).map(|s| s.trim().to_string()).unwrap_or_default();
+            title = line
+                .split(sep)
+                .nth(1)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
             // 卷翻页
             chapter_num += 1;
             if chapter_num > chapters_per_volume {
@@ -73,7 +90,9 @@ pub async fn generate_chapters(
     }
     // 最后一章
     if seen_header && !title.is_empty() {
-        db.create_chapter(sid, volume, chapter_num, &title, &outline_lines.join("\n")).await.map_err(|e| e.to_string())?;
+        db.create_chapter(sid, volume, chapter_num, &title, &outline_lines.join("\n"))
+            .await
+            .map_err(|e| e.to_string())?;
         created += 1;
     }
     Ok(created)
@@ -87,14 +106,21 @@ pub async fn generate_chapter_content(
     volume: i64,
     chapter_number: i64,
 ) -> Result<i64, String> {
-    let locked = db.get_locked_field_values(sid).await.map_err(|e| e.to_string())?;
+    let locked = db
+        .get_locked_field_values(sid)
+        .await
+        .map_err(|e| e.to_string())?;
     let chapters = db.get_chapters(sid).await.map_err(|e| e.to_string())?;
     let ch = chapters
         .iter()
         .find(|c| c.volume == volume && c.chapter_number == chapter_number)
         .cloned()
         .ok_or_else(|| format!("Chapter v{volume} ch{chapter_number} not found"))?;
-    let context = locked.iter().map(|(k, v)| format!("{k}:\n{v}")).collect::<Vec<_>>().join("\n");
+    let context = locked
+        .iter()
+        .map(|(k, v)| format!("{k}:\n{v}"))
+        .collect::<Vec<_>>()
+        .join("\n");
     let outline = ch.outline.clone().unwrap_or_default();
 
     let prompt = format!(
@@ -115,11 +141,22 @@ pub async fn generate_chapter_content(
         return Err("正文生成返回空".into());
     }
     // 落库正文 + 段落 chunks
-    db.update_chapter_content(sid, ch.id, &reply.content).await.map_err(|e| e.to_string())?;
-    db.clear_content_chunks(ch.id).await.map_err(|e| e.to_string())?;
-    let paragraphs: Vec<&str> = reply.content.split("\n\n").map(|p| p.trim()).filter(|p| !p.is_empty()).collect();
+    db.update_chapter_content(sid, ch.id, &reply.content)
+        .await
+        .map_err(|e| e.to_string())?;
+    db.clear_content_chunks(ch.id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let paragraphs: Vec<&str> = reply
+        .content
+        .split("\n\n")
+        .map(|p| p.trim())
+        .filter(|p| !p.is_empty())
+        .collect();
     for (i, para) in paragraphs.iter().enumerate() {
-        db.add_content_chunk(ch.id, i as i64, para).await.map_err(|e| e.to_string())?;
+        db.add_content_chunk(ch.id, i as i64, para)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(ch.id)
 }
@@ -131,9 +168,15 @@ mod tests {
     use crate::db::pool::Db;
 
     async fn setup(sid: &str, db: &Db) {
-        db.create_session(sid, "章节测试", "玄幻", "长篇", "zerg", "novel").await.unwrap();
-        db.upsert_template(sid, 1, "故事核", "少年穿越仙侠大陆修行。", true, "故事核").await.unwrap();
-        db.upsert_template(sid, 2, "世界观", "九州大陆，灵气复苏。", true, "世界观").await.unwrap();
+        db.create_session(sid, "章节测试", "玄幻", "长篇", "zerg", "novel")
+            .await
+            .unwrap();
+        db.upsert_template(sid, 1, "故事核", "少年穿越仙侠大陆修行。", true, "故事核")
+            .await
+            .unwrap();
+        db.upsert_template(sid, 2, "世界观", "九州大陆，灵气复苏。", true, "世界观")
+            .await
+            .unwrap();
     }
 
     /// 大纲解析：5 章 2 卷（卷 1: ch1-2, 卷 2: ch3）
@@ -151,7 +194,10 @@ mod tests {
         assert_eq!(chs.len(), 3);
         assert_eq!(chs[0].chapter_number, 1);
         assert_eq!(chs[0].title.as_deref(), Some("少年启程"));
-        assert!(chs[0].outline.clone().unwrap_or_default().contains("山村"), "大纲积累");
+        assert!(
+            chs[0].outline.clone().unwrap_or_default().contains("山村"),
+            "大纲积累"
+        );
         assert_eq!(chs[1].chapter_number, 2);
         assert_eq!(chs[2].volume, 2, "第 3 章进卷 2");
         assert_eq!(chs[2].chapter_number, 1, "卷 2 第 1 章");
@@ -165,11 +211,15 @@ mod tests {
         let db = Db::open("/tmp/yz_ch2.db").await.unwrap();
         setup("c2", &db).await;
         // 预置 1 章
-        db.create_chapter("c2", 1, 1, "少年启程", "少年离开山村，踏上修行路。").await.unwrap();
+        db.create_chapter("c2", 1, 1, "少年启程", "少年离开山村，踏上修行路。")
+            .await
+            .unwrap();
         let body = "第一段：少年站在村口。\n\n第二段：他握紧拳头，走向远方。\n\n第三段：山路蜿蜒。";
         let refs: Vec<&str> = vec![body];
         let ai: BoxAi = Box::new(MockProvider::new(refs));
-        let cid = generate_chapter_content(&db, &ai, "c2", 1, 1).await.unwrap();
+        let cid = generate_chapter_content(&db, &ai, "c2", 1, 1)
+            .await
+            .unwrap();
         assert!(cid > 0);
         let chunks = db.get_content_chunks(cid).await.unwrap();
         assert_eq!(chunks.len(), 3, "3 段落");
@@ -177,7 +227,11 @@ mod tests {
         assert!(chunks[0].text.contains("村口"));
         // 章 content 更新
         let chs = db.get_chapters("c2").await.unwrap();
-        assert!(chs[0].content.clone().unwrap_or_default().contains("山路蜿蜒"));
+        assert!(chs[0]
+            .content
+            .clone()
+            .unwrap_or_default()
+            .contains("山路蜿蜒"));
         std::fs::remove_file("/tmp/yz_ch2.db").ok();
     }
 }

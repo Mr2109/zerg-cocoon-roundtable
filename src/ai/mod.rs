@@ -32,11 +32,7 @@ impl AiReply {
 #[async_trait::async_trait]
 pub trait AiProvider: Send + Sync {
     /// 聊天调用（非流式——返回完整回复）
-    async fn chat(
-        &self,
-        msgs: &[AiMessage],
-        max_tokens: i64,
-    ) -> Result<AiReply, AiError>;
+    async fn chat(&self, msgs: &[AiMessage], max_tokens: i64) -> Result<AiReply, AiError>;
 
     /// 提供者名（日志/记录）
     fn name(&self) -> &str;

@@ -23,7 +23,14 @@ pub fn parse_fields(text: &str) -> std::collections::HashMap<String, String> {
     }
     // 文本解析（每行 key:value——跳过噪音 key）
     let skip_keys = [
-        "格式", "字段", "字段列表", "讨论摘要", "基于以下讨论", "当前方案", "讨论意见", "格式示例",
+        "格式",
+        "字段",
+        "字段列表",
+        "讨论摘要",
+        "基于以下讨论",
+        "当前方案",
+        "讨论意见",
+        "格式示例",
     ];
     for line in text.split('\n') {
         let line = line.trim();
@@ -32,7 +39,11 @@ pub fn parse_fields(text: &str) -> std::collections::HashMap<String, String> {
         }
         for sep in ["：", ":", "="] {
             if let Some(idx) = line.find(sep) {
-                let k = line[..idx].trim().trim_start_matches('#').trim().to_string();
+                let k = line[..idx]
+                    .trim()
+                    .trim_start_matches('#')
+                    .trim()
+                    .to_string();
                 let v = line[idx + sep.len()..].trim().to_string();
                 if !k.is_empty() && !v.is_empty() && !skip_keys.contains(&k.as_str()) {
                     out.insert(k, v);
@@ -73,7 +84,10 @@ pub fn has_satisfied(opinion: &str, draft_num: u32) -> bool {
 /// 按编号提取草案段落（Web extract_draft_segment 移植）
 pub fn extract_draft_segment(drafts: &str, sel_num: u32) -> String {
     let pat = regex::Regex::new(r"草案(\d)[：:]\s*").unwrap();
-    let marks: Vec<(usize, usize)> = pat.find_iter(drafts).map(|m| (m.start(), m.end())).collect();
+    let marks: Vec<(usize, usize)> = pat
+        .find_iter(drafts)
+        .map(|m| (m.start(), m.end()))
+        .collect();
     if marks.is_empty() {
         return if sel_num == 1 {
             drafts.trim().to_string()

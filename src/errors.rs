@@ -13,7 +13,11 @@ pub enum RtError {
     /// 用户操作错——不重试，UI 提示改操作
     User { code: &'static str, msg: String },
     /// 环境故障——retryable=true 自动重试（AI 429/超时/DB busy）
-    Env { code: &'static str, msg: String, retryable: bool },
+    Env {
+        code: &'static str,
+        msg: String,
+        retryable: bool,
+    },
     /// 系统 bug——不重试，ERROR + 建议报 bug
     Bug { code: &'static str, msg: String },
     /// AI 质量问题——走 quality_check D 级重跑路径
@@ -64,16 +68,39 @@ impl RtError {
 
     /// 是否可自动重试（只有 Env{retryable:true}）
     pub fn retryable(&self) -> bool {
-        matches!(self, RtError::Env { retryable: true, .. })
+        matches!(
+            self,
+            RtError::Env {
+                retryable: true,
+                ..
+            }
+        )
     }
 
     /// 上下文包装——保留原错误，附位置信息（detail 链）
     pub fn ctx(self, where_: &str) -> Self {
         match self {
-            RtError::User { code, msg } => RtError::User { code, msg: format!("{msg} [{where_}]") },
-            RtError::Env { code, msg, retryable } => RtError::Env { code, msg: format!("{msg} [{where_}]"), retryable },
-            RtError::Bug { code, msg } => RtError::Bug { code, msg: format!("{msg} [{where_}]") },
-            RtError::AiQuality { code, msg } => RtError::AiQuality { code, msg: format!("{msg} [{where_}]") },
+            RtError::User { code, msg } => RtError::User {
+                code,
+                msg: format!("{msg} [{where_}]"),
+            },
+            RtError::Env {
+                code,
+                msg,
+                retryable,
+            } => RtError::Env {
+                code,
+                msg: format!("{msg} [{where_}]"),
+                retryable,
+            },
+            RtError::Bug { code, msg } => RtError::Bug {
+                code,
+                msg: format!("{msg} [{where_}]"),
+            },
+            RtError::AiQuality { code, msg } => RtError::AiQuality {
+                code,
+                msg: format!("{msg} [{where_}]"),
+            },
         }
     }
 }
@@ -89,7 +116,10 @@ impl std::error::Error for RtError {}
 /// 兼容垫：旧 String 错误迁移期 From<String>（归 Bug——L5 逐文件消掉后此实现可删）
 impl From<String> for RtError {
     fn from(s: String) -> Self {
-        RtError::Bug { code: B103_JSON_PARSE, msg: s }
+        RtError::Bug {
+            code: B103_JSON_PARSE,
+            msg: s,
+        }
     }
 }
 
@@ -106,19 +136,46 @@ impl From<crate::ai::AiError> for RtError {
         match &e {
             E::Http(s) => {
                 // 429/5xx/连接类→可重试环境故障；其余 4xx→不可重试环境故障
-                let retryable = s.contains("429") || s.contains("500") || s.contains("502") || s.contains("503") || s.contains("timed out") || s.contains("connection");
-                RtError::Env { code: E102_HTTP_429, msg: e.to_string(), retryable }
+                let retryable = s.contains("429")
+                    || s.contains("500")
+                    || s.contains("502")
+                    || s.contains("503")
+                    || s.contains("timed out")
+                    || s.contains("connection");
+                RtError::Env {
+                    code: E102_HTTP_429,
+                    msg: e.to_string(),
+                    retryable,
+                }
             }
             E::Api(s) => {
                 if s.contains("401") || s.contains("404") || s.contains("400") {
-                    RtError::Env { code: "E105", msg: e.to_string(), retryable: false }
+                    RtError::Env {
+                        code: "E105",
+                        msg: e.to_string(),
+                        retryable: false,
+                    }
                 } else {
-                    RtError::Env { code: E102_HTTP_429, msg: e.to_string(), retryable: true }
+                    RtError::Env {
+                        code: E102_HTTP_429,
+                        msg: e.to_string(),
+                        retryable: true,
+                    }
                 }
             }
-            E::Parse(s) => RtError::AiQuality { code: Q102_DRAFT_PARSE, msg: e.to_string() },
-            E::Empty => RtError::AiQuality { code: Q103_EMPTY_REPLY, msg: e.to_string() },
-            _ => RtError::Env { code: E101_AI_TIMEOUT, msg: e.to_string(), retryable: true },
+            E::Parse(s) => RtError::AiQuality {
+                code: Q102_DRAFT_PARSE,
+                msg: e.to_string(),
+            },
+            E::Empty => RtError::AiQuality {
+                code: Q103_EMPTY_REPLY,
+                msg: e.to_string(),
+            },
+            _ => RtError::Env {
+                code: E101_AI_TIMEOUT,
+                msg: e.to_string(),
+                retryable: true,
+            },
         }
     }
 }
@@ -129,18 +186,28 @@ mod tests {
 
     #[test]
     fn test_classification() {
-        let e = RtError::User { code: U101_TOPIC_EMPTY, msg: "主题为空".into() };
+        let e = RtError::User {
+            code: U101_TOPIC_EMPTY,
+            msg: "主题为空".into(),
+        };
         assert_eq!((e.code(), e.kind(), e.retryable()), ("U101", "user", false));
 
-        let e = RtError::Env { code: E102_HTTP_429, msg: "429".into(), retryable: true };
+        let e = RtError::Env {
+            code: E102_HTTP_429,
+            msg: "429".into(),
+            retryable: true,
+        };
         assert!(e.retryable());
         assert_eq!(e.kind(), "env");
     }
 
     #[test]
     fn test_ctx_chain() {
-        let e = RtError::Bug { code: B101_INVALID_STATE, msg: "非法迁移".into() }
-            .ctx("block:核心冲突/phase:讨论");
+        let e = RtError::Bug {
+            code: B101_INVALID_STATE,
+            msg: "非法迁移".into(),
+        }
+        .ctx("block:核心冲突/phase:讨论");
         assert!(e.to_string().contains("[block:核心冲突/phase:讨论]"));
         assert_eq!(e.code(), "B101"); // code 不被 ctx 改
     }
