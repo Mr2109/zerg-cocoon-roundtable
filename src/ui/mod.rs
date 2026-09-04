@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 pub mod builder;
+pub mod canvas;
 pub mod chapter;
 pub mod collab;
 pub mod session;

@@ -410,6 +410,7 @@ pub fn workshop_view(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.selectable_value(&mut app.workshop.tab, 0, "📝 代码");
             ui.selectable_value(&mut app.workshop.tab, 1, "🔬 试跑");
+            ui.selectable_value(&mut app.workshop.tab, 2, "🗺 画布");
         });
         ui.separator();
         match app.workshop.tab {
@@ -430,6 +431,10 @@ pub fn workshop_view(app: &mut crate::ui::RoundtableApp, ui: &mut egui::Ui) {
                             });
                         }
                     });
+            }
+            2 => {
+                // C4e: 画布视图（只读图——拓扑分层/kind 配色/human_gate 标记——跟随草稿实时同步）
+                crate::ui::canvas::canvas_ui(app, ui);
             }
             _ => {
                 // 代码视图（JSON 编辑器——等宽——改即实时校验）
