@@ -34,11 +34,13 @@
 
 ## B 案：节点层
 
-### B1 ⬜ RtFlowNode trait + single/gate 节点
-- trait: kind/version/execute(ctx)/retry_policy——discussion 包壳现有状态机
-- single: prompt 模板+变量替换→一次 LLM 调用→写变量池
-- gate: 数值/条件判定→next_by 分支选择
-- 验收：mock 三节点流（discussion→single→gate）跑通
+### B1 ✅ RtFlowNode trait + single/gate 节点（2026-09-04）
+- nodes.rs: RtFlowNode trait（kind/version/retry_policy 自描述——graphon Node 思想——Box::pin async）
+- SingleNode: prompt 变量替换→一次 LLM 调用→产出写变量池（单字段全文/多字段按行解析）
+- GateNode: desc 结构化判定（`值 包含 kw` / `值 非空` / 无条件）→判定结果写变量池——不重试策略
+- discussion 节点暂不过 trait（等价性保护——B2 主循环改造统一分发）
+- loader 修订: inputs 纳入 {{input.key}} 引用命名空间（A4 设计补全）
+- 验收：✅ 59 测试全过——flow_test 三节点流端到端（single→single→gate 通过+不通过两向）
 
 ### B2 ⬜ next/next_by 受控 DAG + current_node 断点兼容
 - 主循环线性→按声明推进（无 next=隐式顺序——novel 等价）

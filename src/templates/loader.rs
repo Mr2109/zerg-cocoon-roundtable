@@ -139,6 +139,8 @@ pub fn load_flow_str(text: &str) -> Result<ProjectTemplate, Vec<String>> {
         .nodes
         .iter()
         .flat_map(|n| n.fields.iter().map(|f| format!("{}.{}", n.id, f)))
+        // A4 修订：inputs 也是引用命名空间（{{input.key}}——运行时从会话行注入）
+        .chain(flow.inputs.iter().map(|i| format!("input.{}", i.key)))
         .collect();
     for n in &flow.nodes {
         for var in extract_refs(&n.desc) {
