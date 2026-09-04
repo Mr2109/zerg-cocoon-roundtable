@@ -44,6 +44,22 @@ pub struct Workshop {
     dry_rt: Option<tokio::runtime::Handle>,
     /// C4c: 保存标志（save 成功置位——workshop_view 读后清+入协作流水）
     pub saved_flag: bool,
+    /// C3: 画布选中节点 id（空=未选）
+    pub canvas_sel: String,
+    /// C3: 属性面板缓冲（sync_for=缓冲对应的节点 id）
+    pub canvas_buf: CanvasBuf,
+}
+
+/// C3: 画布属性面板编辑缓冲
+#[derive(Debug, Clone, Default)]
+pub struct CanvasBuf {
+    pub sync_for: String,
+    pub name: String,
+    pub kind: String,
+    pub gate: bool,
+    pub desc: String,
+    pub fields: String,
+    pub next: String,
 }
 
 impl Workshop {
@@ -62,6 +78,8 @@ impl Workshop {
             dry_sid: None,
             dry_rt: None,
             saved_flag: false,
+            canvas_sel: String::new(),
+            canvas_buf: CanvasBuf::default(),
         }
     }
 

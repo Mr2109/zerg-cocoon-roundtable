@@ -100,7 +100,13 @@
 - 与代码视图同源（draft 实时同步——改 JSON 切画布即看新图）
 - 验收：✅ 69 测试全过（分层/分支列位/环不崩/坏 JSON）——UI 手工验收随部署
 
-### C3 ⬜ 画布编辑 + 模板库（升级项——拖拽编辑写回 flow.json）
+### C3 ✅ 画布编辑写回（属性面板+加删节点）（2026-09-05）
+- 点选节点→底部属性面板（名称/kind 下拉/人工门禁 checkbox/desc/fields/next 逗号分隔）——「应用修改」写回 draft→revalidate→流水入账
+- 「➕ 后插节点」（目标 next=[新id]——新节点接走原 next——id=max(nX)+1）/「🗑 删除节点」（所有 next 引用同步清理）
+- apply_edit 用 serde_json 值级改写——roles/inputs/gate 等其余字段原样保留
+- 坐标不持久化（flow.json 无坐标字段——布局每次拓扑重算——不污染 schema）
+- 缓冲同步机制（sync_for 标记——选中变化才重置——不覆盖正在编辑的文本）
+- 验收：✅ 70 测试全过（update 保留 roles+trim/删除清引用/后插接 next/坏 JSON）——UI 手工验收随部署
 
 ## 里程碑
 - MA：A1-A4（模板层通——手写 JSON 可组新流）
