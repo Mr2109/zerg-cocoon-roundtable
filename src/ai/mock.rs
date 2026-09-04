@@ -31,7 +31,10 @@ impl MockProvider {
 #[async_trait::async_trait]
 impl AiProvider for MockProvider {
     async fn chat(&self, _msgs: &[AiMessage], _max_tokens: i64) -> Result<AiReply, AiError> {
-        let mut q = self.script.lock().map_err(|e| AiError::Api(e.to_string()))?;
+        let mut q = self
+            .script
+            .lock()
+            .map_err(|e| AiError::Api(e.to_string()))?;
         let text = if q.len() > 1 {
             q.pop_front().unwrap_or_else(|| self.fallback.clone())
         } else {

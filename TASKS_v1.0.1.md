@@ -73,9 +73,13 @@
 - 面包屑「🛠 工坊」入口——show_workshop 视图开关——保存后模板列表刷新（新建流立即被新建表单选到）
 - 验收：✅ 61 测试全过——UI 手工验收随部署
 
-### C1 ⬜ 只读画布
-- egui 画布渲染 flow.json（节点框/连线/human_gate 标记）+ Mermaid 导出
-- 验收：手工核对图形与声明一致
+### C4b ✅ 试跑通道（MockProvider 会话——零 token 走流程）（2026-09-04）
+- 「▶ 试跑(Mock)」按钮（校验过才可用）——自动切试跑 tab
+- 后台 run_discussion 复用（Mock AI 按节点 kind 预置响应——discussion 8 响应/块/single 按 fields）——真跑节点顺序/变量传递/门禁分支
+- 试跑 tab：变量池 trace 列表（node/产出/key=value 摘要 60 字）
+- 试跑会话隔离：工坊专用 sid（ws_dry_*）——跑完自动清 sessions/messages/flow_vars/templates 四表行
+- mpsc channel 后台线程→UI 帧轮询（try_recv 非阻塞）
+- 验收：✅ 61 测试全过——手工验收随部署
 
 ### C2 ⬜ AI 建流回路（本期重心）
 - 规划=圆桌讨论（需求→角色团辩论出结构化方案）+ skill 检索注入（kb 体系）
