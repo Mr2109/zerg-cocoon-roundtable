@@ -726,6 +726,74 @@ impl Db {
         });
     }
 
+    // ── flow_vars 变量池（A3——v1.0.1——selector=(node_id,key)——UNIQUE 覆写）──
+
+    /// 写变量（节点锁定时调用——同 selector 覆写——graphon VariablePool.add 语义）
+    pub async fn set_flow_var(
+        &self,
+        sid: &str,
+        node_id: &str,
+        key: &str,
+        value: &str,
+    ) -> DbResult<()> {
+        let (sid, node_id, key, value) = (
+            sid.to_string(),
+            node_id.to_string(),
+            key.to_string(),
+            value.to_string(),
+        );
+        self.call(move |c| {
+            c.execute(
+                "INSERT INTO flow_vars (sid, node_id, key, value) VALUES (?1,?2,?3,?4)
+                 ON CONFLICT(sid, node_id, key) DO UPDATE SET value = excluded.value, ts = datetime('now')",
+                params![sid, node_id, key, value],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// 读单变量（{{node.key}} 替换用）
+    pub async fn get_flow_var(
+        &self,
+        sid: &str,
+        node_id: &str,
+        key: &str,
+    ) -> DbResult<Option<String>> {
+        let (sid, node_id, key) = (sid.to_string(), node_id.to_string(), key.to_string());
+        self.query(move |c| {
+            let v = match c.query_row(
+                "SELECT value FROM flow_vars WHERE sid=?1 AND node_id=?2 AND key=?3",
+                params![sid, node_id, key],
+                |r| r.get::<_, String>(0),
+            ) {
+                Ok(v) => Some(v),
+                Err(rusqlite::Error::QueryReturnedNoRows) => None,
+                Err(e) => return Err(e.into()),
+            };
+            Ok(v)
+        })
+        .await
+    }
+
+    /// 读会话全部变量（上下文组装——{{}} 批量替换）
+    pub async fn get_flow_vars(&self, sid: &str) -> DbResult<Vec<(String, String, String)>> {
+        let sid = sid.to_string();
+        self.query(move |c| {
+            let mut stmt =
+                c.prepare("SELECT node_id, key, value FROM flow_vars WHERE sid=?1 ORDER BY id")?;
+            let rows = stmt.query_map(params![sid], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        })
+        .await
+    }
+
     /// 错误列表（UI 日志对话框——最新在前——limit 200）
     pub async fn list_errors(&self, sid: Option<&str>, limit: i64) -> DbResult<Vec<ErrorRow>> {
         let (sid, limit) = (sid.map(|s| s.to_string()), limit);
@@ -858,6 +926,36 @@ mod tests {
         assert_eq!(cs[0].last_seen_chapter, 3);
         db.add_token_usage("s3", "Block1", 100, 50).await.unwrap();
         std::fs::remove_file("/tmp/yz_crud_3.db").ok();
+    }
+
+    #[tokio::test]
+    async fn flow_vars_roundtrip() {
+        let db = Db::open(format!("/tmp/yz_flowvar_{}.db", std::process::id()))
+            .await
+            .unwrap();
+        db.set_flow_var("rt1", "n0", "故事核", "少年修仙复仇")
+            .await
+            .unwrap();
+        // 覆写（UNIQUE upsert）
+        db.set_flow_var("rt1", "n0", "故事核", "少年修仙复仇（终）")
+            .await
+            .unwrap();
+        let v = db.get_flow_var("rt1", "n0", "故事核").await.unwrap();
+        assert_eq!(v.as_deref(), Some("少年修仙复仇（终）"));
+        // 全量读（顺序稳定）
+        db.set_flow_var("rt1", "n1", "结论", "复仇线为主")
+            .await
+            .unwrap();
+        let all = db.get_flow_vars("rt1").await.unwrap();
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].0, "n0");
+        // 会话隔离
+        let other = db.get_flow_vars("rt2").await.unwrap();
+        assert!(other.is_empty());
+        // 未定义引用返回 None
+        let miss = db.get_flow_var("rt1", "nX", "y").await.unwrap();
+        assert!(miss.is_none());
+        std::fs::remove_file(format!("/tmp/yz_flowvar_{}.db", std::process::id())).ok();
     }
 
     #[tokio::test]

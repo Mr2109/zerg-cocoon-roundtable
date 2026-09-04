@@ -20,10 +20,11 @@
 - 引擎/调度器/UI 三处调用点全切「按会话 project_type 装载」——不再固定 novel
 - 验收：✅ 52 测试全过（新增 roundtrip 对齐=装载==编译期逐字段 + 文件优先/坏文件回退 2 测）
 
-### A3 ⬜ 变量池 v2（flow_vars 表）
-- 表 (sid, node_id, key, value, ts)——第 14 张表
-- 节点锁定时写入产物；selector=(node_id, key) 读写 API；sys./env./conv. 前缀保留
-- 验收：roundtrip 单测 + 锁定钩子联动测试
+### A3 ✅ 变量池 v2（flow_vars 表）（2026-09-04）
+- 第 14 张表 flow_vars (sid, node_id, key, value, ts)——UNIQUE(sid,node_id,key) upsert 覆写
+- crud: set_flow_var/get_flow_var/get_flow_vars（selector=(node_id,key)——graphon VariablePool 语义）
+- 引擎锁定钩子：lock_up 每字段锁定时写变量池（node_id=n{index}）——B 案 {{}} 替换数据源
+- 验收：✅ 53 测试全过（roundtrip：覆写/顺序/会话隔离/未定义 None）
 
 ### A4 ⬜ {{node.field}} 替换 + 表单读 inputs + human_gate 声明
 - 上下文组装：desc 内 {{}} 占位替换（未定义引用→装载失败 errors 表）

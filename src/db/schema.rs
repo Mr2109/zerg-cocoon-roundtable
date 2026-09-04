@@ -178,6 +178,16 @@ CREATE TABLE IF NOT EXISTS errors (
     detail TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_errors_sid ON errors(sid);
+CREATE TABLE IF NOT EXISTS flow_vars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sid TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    ts TEXT DEFAULT (datetime('now')),
+    UNIQUE(sid, node_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_flow_vars_sid ON flow_vars(sid);
 "#;
 
 /// 初始化数据库（建表）
@@ -216,8 +226,8 @@ mod tests {
         ];
         assert_eq!(
             tables.len(),
-            13,
-            "表数应为 13（errors 表——L2）——实际: {tables:?}"
+            14,
+            "表数应为 14（errors+flow_vars）——实际: {tables:?}"
         );
         for e in expect {
             assert!(tables.contains(&e.to_string()), "缺表: {e}");

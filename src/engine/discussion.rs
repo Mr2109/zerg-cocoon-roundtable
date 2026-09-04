@@ -418,6 +418,10 @@ async fn lock_up(
         db.upsert_template(&state.sid, bi, f, &pick, true, &block.name)
             .await
             .map_err(|e| e.to_string())?;
+        // A3: 变量池写入（selector=(node_id=n{index}, key=字段)——B 案 {{}} 替换的数据源）
+        db.set_flow_var(&state.sid, &format!("n{}", block.index), f, &pick)
+            .await
+            .map_err(|e| e.to_string())?;
     }
     // fm 填充（format_field_value 后 join）
     let fm_out = fill_fm(fm, fs, vv);

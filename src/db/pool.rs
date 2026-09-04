@@ -104,7 +104,11 @@ mod tests {
             })
             .await
             .unwrap();
-        assert_eq!(tables.len(), 13, "13 表（errors——L2）——实际 {tables:?}");
+        assert_eq!(
+            tables.len(),
+            14,
+            "14 表（errors+flow_vars）——实际 {tables:?}"
+        );
     }
 
     #[tokio::test]
