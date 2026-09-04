@@ -60,6 +60,7 @@
 - ✅ templates/contract.flow.json（4 角色团：司衡/司约/司账/司权 + 6 节点：抽取→四维审查→争议辩论→人核→修改建议→报告）——loader 验证装载成功（6 节点/4 角色）
 - ✅ inputs 值入变量池（create() form_values → flow_vars input.* 前缀）——run 时统一拉取注入 {{input.xxx}}
 - ✅ 修改建议格式对齐Mr2109惯例（红删除线/红字/蓝字民法典引用）——写入 desc 引导文案
+- ✅ 模板选择器（新建表单 ComboBox 扫描 templates/*.flow.json——切换刷新 inputs/类型行随模板显隐——create 用选中 project_type）
 - 🔄 待Mr2109实际用一轮真合同终验
 - 验收：61 测试全过 + 装载器实证通过
 

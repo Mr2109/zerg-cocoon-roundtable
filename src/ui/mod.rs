@@ -68,6 +68,10 @@ pub struct RoundtableApp {
     pub form_inputs: Vec<crate::templates::TemplateInput>,
     /// A4: 新建表单动态值（key→用户输入/默认值）
     pub form_values: std::collections::HashMap<String, String>,
+    /// B4: 可选模板列表 (id, name)——扫描 templates/*.flow.json
+    pub available_templates: Vec<(String, String)>,
+    /// B4: 当前选中的模板 id
+    pub form_template: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -142,6 +146,8 @@ impl RoundtableApp {
             log_loaded_at: std::time::Instant::now() - std::time::Duration::from_secs(3600),
             form_inputs: Vec::new(),
             form_values: Default::default(),
+            available_templates: Vec::new(),
+            form_template: "novel".into(),
         };
         app.reset_stale_running(); // 上轮进程残留 running→idle（断点可重开——2026-09-03）
         app.refresh_sessions();
@@ -151,6 +157,8 @@ impl RoundtableApp {
             &crate::templates::default_templates_dir(),
         );
         app.form_inputs = t.inputs.clone();
+        // B4: 扫描可选模板（templates/*.flow.json）+ novel 内置兜底
+        app.available_templates = scan_templates();
         app
     }
 
@@ -197,11 +205,12 @@ impl RoundtableApp {
             self.provider.clone(),
         );
         let id = format!("rt_{}", chrono_now());
-        // A4/B4: 当前选择的模板（novel 起步——B4 后加模板选择器；inputs 值入变量池）
-        let ptype = "novel";
-        let r = self
-            .rt
-            .block_on(self.db.create_session(&id, &topic, &nt, &len, &prov, ptype));
+        // B4: 用选中的模板——project_type 决定引擎装载哪份 flow
+        let ptype = self.form_template.clone();
+        let r = self.rt.block_on(
+            self.db
+                .create_session(&id, &topic, &nt, &len, &prov, &ptype),
+        );
         match r {
             Ok(()) => {
                 // A4: 表单动态值写入变量池（{{input.xxx}} 替换源——contract_text 等大文本走这里）
@@ -534,6 +543,27 @@ impl RoundtableApp {
             ui.add_space(8.0);
             ui.heading("新建项目（圆桌派讨论）");
             ui.separator();
+            // B4: 模板选择（扫描 templates/*.flow.json——选择即刷新表单 inputs）
+            ui.horizontal(|ui| {
+                ui.label("任务流：");
+                let avail = self.available_templates.clone();
+                let cur = self.form_template.clone();
+                egui::ComboBox::from_id_salt("tpl_select")
+                    .selected_text(format!(
+                        "{}",
+                        avail
+                            .iter()
+                            .find(|(id, name)| id == &cur)
+                            .map(|(_, n)| n.as_str())
+                            .unwrap_or(&cur)
+                    ))
+                    .show_ui(ui, |ui| {
+                        for (id, name) in &avail {
+                            ui.selectable_value(&mut self.form_template, id.clone(), name);
+                        }
+                    });
+            });
+            ui.add_space(4.0);
             ui.horizontal(|ui| {
                 ui.label("主题：");
                 ui.add(
@@ -543,16 +573,37 @@ impl RoundtableApp {
                 );
             });
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label("类型：");
-                for t in NOVEL_TYPES {
-                    if ui.selectable_label(self.novel_type == t, t).clicked() {
-                        self.novel_type = t.to_string();
+            // 非 novel 模板隐藏小说类型行（类型行是小说特有）
+            if self.form_template == "novel" {
+                ui.horizontal(|ui| {
+                    ui.label("类型：");
+                    for t in NOVEL_TYPES {
+                        if ui.selectable_label(self.novel_type == t, t).clicked() {
+                            self.novel_type = t.to_string();
+                        }
                     }
-                }
-            });
-            ui.add_space(6.0);
+                });
+                ui.add_space(6.0);
+            }
             // A4: inputs 动态渲染（模板声明驱动——不再写死篇幅行；novel 模板 inputs=length）
+            // B4: 模板切换→刷新 inputs（form_values 清空防串模板）
+            {
+                let t = crate::templates::loader::get_template_loaded(
+                    &self.form_template.clone(),
+                    &crate::templates::default_templates_dir(),
+                );
+                let new_keys: Vec<String> = t.inputs.iter().map(|i| i.key.clone()).collect();
+                let stale = self
+                    .form_inputs
+                    .iter()
+                    .map(|i| i.key.clone())
+                    .collect::<Vec<_>>()
+                    != new_keys;
+                if stale {
+                    self.form_inputs = t.inputs.clone();
+                    self.form_values.clear();
+                }
+            }
             for inp in &self.form_inputs {
                 ui.horizontal(|ui| {
                     ui.label(format!("{}：", inp.label));
@@ -610,6 +661,31 @@ fn default_db_path() -> String {
     std::fs::create_dir_all(&p).ok();
     p.push("roundtable.db");
     p.to_string_lossy().to_string()
+}
+
+/// B4: 扫描可选模板（templates/*.flow.json——id+name；novel 内置兜底排首）
+fn scan_templates() -> Vec<(String, String)> {
+    let mut out = vec![("novel".to_string(), "小说设定流水线".to_string())];
+    let dir = crate::templates::default_templates_dir();
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if !name.ends_with(".flow.json") || name == "novel.flow.json" {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(e.path()) {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if let (Some(id), Some(fname)) = (
+                        v.get("id").and_then(|x| x.as_str()),
+                        v.get("name").and_then(|x| x.as_str()),
+                    ) {
+                        out.push((id.to_string(), fname.to_string()));
+                    }
+                }
+            }
+        }
+    }
+    out
 }
 
 /// 时间戳（会话 ID——非加密）
