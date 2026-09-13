@@ -151,6 +151,11 @@
   2. **Web 的 `update_chapter(title/outline)` 在 Rust 版没有对应实现** —— 只有 `update_chapter_content`（改正文），
      UI 侧 `chapter.rs` 也只有正文编辑入口 ⇒ **记为对齐缺口**（见下节，待拍板）。
 - 新增用例已过**变异验证**（注入错误断言 ⇒ 红 `panicked`；恢复后逐字节一致）。
+- **引擎级回归（2026-09-14 补强）**：`engine::run::tests::run_all_blocks_completes` —— mock 走**全 13 块**，断言
+  `blocks_done == 13`、会话 `status=completed` / `current_block=13`、**13 块全部字段锁定（32 个；期望值由模板算出，
+  不是从 DB 自比）**、每块都留下讨论消息。旧名 `run_two_blocks_completes` **名实不符**（脚本只写 2 块，
+  但 MockProvider 队列耗尽后会重复最后一条 ⇒ 第 3–13 块照样跑完）⇒ 已改名并注明机制。
+  同族：`resume_from_block`（断点续跑）、`gate_reruns_d_grade`（门禁 D 级重跑）。
 - 依赖：T4-T6
 
 ### T9-2 🔄 真调对齐验证（Rust 版实际跑一轮完整创作——实证中）

@@ -376,9 +376,11 @@ mod tests {
     use crate::templates::novel;
     use std::sync::atomic::AtomicBool;
 
-    /// 完整主循环 mock：2 块跑完——completed
+    /// 完整主循环 mock：**全 13 块**跑完——completed
+    /// 脚本只写 2 块，MockProvider 的队列耗尽后会**重复最后一条**响应 ⇒ 第 3-13 块同样跑完
+    ///（旧名 `run_two_blocks_completes` 名实不符，2026-09-14 改名；断言同步加强）
     #[tokio::test]
-    async fn run_two_blocks_completes() {
+    async fn run_all_blocks_completes() {
         let _ = std::fs::remove_file("/tmp/yz_run1.db");
         let db = Db::open("/tmp/yz_run1.db").await.unwrap();
         db.create_session("r1", "完整跑", "玄幻", "长篇", "zerg", "novel")
@@ -409,10 +411,21 @@ mod tests {
         let s = db.get_session("r1").await.unwrap().unwrap();
         assert_eq!(s.status, "completed");
         assert_eq!(s.current_block, 13);
-        // 锁定上下文重建（跑后续块时含前块）——全部块锁定
+        // 13 块 × 全部字段锁定：期望值从模板自身算（模板 → 引擎 → DB 三段链路，非同源自比）
+        let expect_locked: usize = tmpl.blocks.iter().map(|b| b.fields.len()).sum();
         let locked = db.get_templates("r1", None).await.unwrap();
         let locked_cnt = locked.iter().filter(|t| t.locked == 1).count();
-        assert!(locked_cnt >= 2, "块字段锁定——实际 {locked_cnt}");
+        assert_eq!(
+            locked_cnt, expect_locked,
+            "13 块的全部字段都应锁定（期望 {expect_locked}）——实际 {locked_cnt}"
+        );
+        // 讨论确实发生：每块都要留下消息（13 块 ⇒ 至少 13 条）
+        let msgs = db.get_all_messages("r1").await.unwrap();
+        assert!(
+            msgs.len() >= 13,
+            "13 块都应留下讨论消息——实际 {} 条",
+            msgs.len()
+        );
         std::fs::remove_file("/tmp/yz_run1.db").ok();
     }
 
