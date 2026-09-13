@@ -257,7 +257,7 @@ impl eframe::App for RoundtableApp {
 }
 
 impl RoundtableApp {
-    /// 纯渲染（不依赖 eframe 壳——虫族 UI 集装箱直接调用嵌入）
+    /// 纯渲染（不依赖 eframe 壳——虫族 UI 虫茧直接调用嵌入）
     pub fn render(&mut self, ui: &mut egui::Ui) {
         self.exit_platform = false; // 每帧重置——面包屑点击时置 true——宿主本帧末读取
                                     // 统一面包屑顶栏（三层收一层——2026-09-04）:
