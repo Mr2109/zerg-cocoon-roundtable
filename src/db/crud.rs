@@ -993,4 +993,120 @@ mod tests {
         assert_eq!(one[0].kind, "env");
         std::fs::remove_file(format!("/tmp/yz_crud_err_{}.db", std::process::id())).ok();
     }
+
+    // ─── T9-1：Web 版 test_discussion.py 用例移植 ───
+    // 命名保留 Web 侧用例语义，注释标出出处；两版**有差异**的地方就地注明（不假装等价）。
+
+    #[tokio::test]
+    async fn get_nonexistent_session_returns_none() {
+        // T9-1 ← Web::test_get_nonexistent_session
+        let p = format!("/tmp/yz_t9_none_{}.db", std::process::id());
+        let db = Db::open(p.clone()).await.unwrap();
+        assert!(db.get_session("nonexistent").await.unwrap().is_none());
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[tokio::test]
+    async fn update_progress_sets_block_and_status() {
+        // T9-1 ← Web::test_update_progress（Web 同时断言 current_block 与 status 两项）
+        let p = format!("/tmp/yz_t9_prog_{}.db", std::process::id());
+        let db = Db::open(p.clone()).await.unwrap();
+        db.create_session("t9p", "", "玄幻", "长篇", "zerg-ornith", "novel")
+            .await
+            .unwrap();
+        db.update_session_progress("t9p", 5, "running").await.unwrap();
+        let s = db.get_session("t9p").await.unwrap().unwrap();
+        assert_eq!(s.current_block, 5);
+        assert_eq!(s.status, "running");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[tokio::test]
+    async fn messages_count_and_paging() {
+        // T9-1 ← Web::test_get_messages（3 条消息 + after_id 分页）
+        let p = format!("/tmp/yz_t9_msg_{}.db", std::process::id());
+        let db = Db::open(p.clone()).await.unwrap();
+        db.create_session("t9m", "", "", "", "zerg-ornith", "novel")
+            .await
+            .unwrap();
+        let m1 = db.add_message("t9m", "司世", "消息1", "author", "").await.unwrap();
+        db.add_message("t9m", "司人", "消息2", "author", "").await.unwrap();
+        db.add_message("t9m", "主持人", "消息3", "moderator", "").await.unwrap();
+        assert!(m1 > 0);
+        assert_eq!(db.get_all_messages("t9m").await.unwrap().len(), 3);
+        let after = db.get_messages("t9m", m1).await.unwrap();
+        assert!(!after.is_empty(), "after_id 之后应仍有消息");
+        assert!(after.iter().all(|m| m.id > m1), "分页结果必须都晚于 after_id");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[tokio::test]
+    async fn locked_values_exclude_unlocked() {
+        // T9-1 ← Web::test_get_locked_field_values（多字段锁定 + 未锁定字段不得出现）
+        let p = format!("/tmp/yz_t9_lk_{}.db", std::process::id());
+        let db = Db::open(p.clone()).await.unwrap();
+        db.create_session("t9l", "", "", "", "zerg-ornith", "novel")
+            .await
+            .unwrap();
+        db.upsert_template("t9l", 0, "类型", "玄幻", true, "类型").await.unwrap();
+        db.upsert_template("t9l", 1, "故事核", "复仇", true, "故事核").await.unwrap();
+        db.upsert_template("t9l", 0, "未锁定字段", "值", false, "类型").await.unwrap();
+        let locked = db.get_locked_field_values("t9l").await.unwrap();
+        let map: std::collections::HashMap<String, String> = locked.into_iter().collect();
+        assert_eq!(map.get("类型").map(String::as_str), Some("玄幻"));
+        assert_eq!(map.get("故事核").map(String::as_str), Some("复仇"));
+        assert!(!map.contains_key("未锁定字段"), "未锁定字段不得进入锁定值集合");
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[tokio::test]
+    async fn chapters_create_get_order() {
+        // T9-1 ← Web::test_create_chapter + test_get_chapters（三章、跨卷）
+        // 差异：Rust 版 create_chapter 返回 ()（Web 返回自增 id）⇒ 以「查得回 + 排序」作等价断言。
+        let p = format!("/tmp/yz_t9_ch_{}.db", std::process::id());
+        let db = Db::open(p.clone()).await.unwrap();
+        db.create_session("t9c", "", "", "", "zerg-ornith", "novel")
+            .await
+            .unwrap();
+        db.create_chapter("t9c", 1, 1, "第一章", "大纲1").await.unwrap();
+        db.create_chapter("t9c", 1, 2, "第二章", "大纲2").await.unwrap();
+        db.create_chapter("t9c", 2, 1, "第三卷第一章", "大纲3").await.unwrap();
+        let chs = db.get_chapters("t9c").await.unwrap();
+        assert_eq!(chs.len(), 3);
+        assert_eq!((chs[0].volume, chs[0].chapter_number), (1, 1), "按 volume,chapter_number 排序");
+        assert_eq!((chs[2].volume, chs[2].chapter_number), (2, 1));
+        assert_eq!(chs[0].title.as_deref(), Some("第一章"));
+        assert_eq!(chs[0].outline.as_deref(), Some("大纲1"));
+        // 正文更新（Rust 版章节的唯一更新入口；Web 的 update_chapter 改的是 title/outline）
+        let cid = chs[0].id;
+        db.update_chapter_content("t9c", cid, "正文内容").await.unwrap();
+        let chs2 = db.get_chapters("t9c").await.unwrap();
+        let one = chs2.iter().find(|c| c.id == cid).unwrap();
+        assert_eq!(one.content.as_deref(), Some("正文内容"));
+        std::fs::remove_file(&p).ok();
+    }
+
+    #[tokio::test]
+    async fn full_flow_lock_all_fields_then_chapter() {
+        // T9-1 ← Web::TestBlockFlow::test_full_flow（前 5 Block 全字段锁定 ⇒ 数量相等 + 章节建/查）
+        let p = format!("/tmp/yz_t9_flow_{}.db", std::process::id());
+        let db = Db::open(p.clone()).await.unwrap();
+        db.create_session("t9f", "测试流程", "玄幻", "长篇", "zerg-ornith", "novel")
+            .await
+            .unwrap();
+        let mut expect = 0usize;
+        for (i, b) in crate::templates::novel::NOVEL_BLOCKS.iter().take(5).enumerate() {
+            for f in &b.fields {
+                db.upsert_template("t9f", i as i64, f, &format!("测试_{}", f), true, &b.name)
+                    .await
+                    .unwrap();
+                expect += 1;
+            }
+        }
+        let locked = db.get_locked_field_values("t9f").await.unwrap();
+        assert_eq!(locked.len(), expect, "前 5 Block 的全部字段都应锁定");
+        db.create_chapter("t9f", 1, 1, "测试章", "测试大纲").await.unwrap();
+        assert_eq!(db.get_chapters("t9f").await.unwrap().len(), 1);
+        std::fs::remove_file(&p).ok();
+    }
 }

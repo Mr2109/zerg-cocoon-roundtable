@@ -373,4 +373,18 @@ mod tests {
         assert_eq!(t2.blocks.len(), 13, "坏声明文件回退编译期内置");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn block_and_author_definitions_parity() {
+        // T9-1 ← Web::test_block_definitions + Web::test_author_definitions
+        assert!(NOVEL_BLOCKS.len() >= 11, "Block 数不少于 11");
+        assert_eq!(NOVEL_BLOCKS[0].name, "类型");
+        assert_eq!(NOVEL_BLOCKS[0].fields.join(","), "类型,篇幅");
+        let names: Vec<&str> = NOVEL_BLOCKS.iter().map(|b| b.name.as_str()).collect();
+        assert!(names.contains(&"逐章大纲"), "Block 名里应含「逐章大纲」");
+        assert!(names.contains(&"正文创作"), "Block 名里应含「正文创作」");
+        assert_eq!(NOVEL_AUTHORS.len(), 5, "5 位作者");
+        assert_eq!(NOVEL_AUTHORS[0].name, "司世");
+        assert_eq!(NOVEL_AUTHORS[4].name, "司情");
+    }
 }

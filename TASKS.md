@@ -124,8 +124,33 @@
 
 ## 阶段 9：全功能对齐验证
 
-### T9-1 ⬜ 引擎级回归（Web 版用例 → Rust 单测全过）
-- test_discussion.py 用例移植——mock 全过
+### T9-1 ✅ 引擎级回归（Web 版用例 → Rust 单测全过）（2026-09-14）
+
+- `test_discussion.py` **14 用例逐条对齐**（下表）—— `cargo test`：**78 passed / 0 failed / 1 ignored**（本轮 +7）
+- 命名约定：新增用例名保留 Web 侧语义，注释标出出处（`// T9-1 ← Web::test_xxx`）
+
+| # | Web 用例 | Rust 对应 | 状态 |
+|---|---|---|---|
+| 1 | test_create_session | `db::crud::tests::session_crud_roundtrip` | ✅ 既有 |
+| 2 | test_get_session | 同上 | ✅ 既有 |
+| 3 | test_get_nonexistent_session | `get_nonexistent_session_returns_none` | 🆕 |
+| 4 | test_update_progress | `update_progress_sets_block_and_status`（Web 断言 block + status 两项） | 🆕 |
+| 5 | test_add_message | `db::crud::tests::message_and_template_flow` | ✅ 既有 |
+| 6 | test_get_messages（三条 + `after_id` 分页） | `messages_count_and_paging` | 🆕 |
+| 7 | test_upsert_template | `message_and_template_flow`（含覆盖） | ✅ 既有 |
+| 8 | test_get_locked_field_values（未锁定不在） | `locked_values_exclude_unlocked` | 🆕 |
+| 9 | test_create_chapter | `chapters_create_get_order` | 🆕 ⚠️ 见差异① |
+| 10 | test_get_chapters（三章跨卷） | 同上（含 `volume,chapter_number` 排序） | 🆕 |
+| 11 | test_update_chapter（改 title/outline） | **无对应 API** | ⚠️ 见差异② |
+| 12 | test_block_definitions | `templates::novel::tests::block_and_author_definitions_parity` | 🆕 |
+| 13 | test_author_definitions | 同上 | 🆕 |
+| 14 | test_full_flow（前 5 Block 全字段锁定 + 章节） | `full_flow_lock_all_fields_then_chapter` | 🆕 |
+
+- **两处差异（如实记录，不假装等价）**：
+  1. `create_chapter` 返回 `DbResult<()>`（Web 返回自增 id）⇒ 以「查得回 + 排序 + 正文可写」作等价断言。
+  2. **Web 的 `update_chapter(title/outline)` 在 Rust 版没有对应实现** —— 只有 `update_chapter_content`（改正文），
+     UI 侧 `chapter.rs` 也只有正文编辑入口 ⇒ **记为对齐缺口**（见下节，待拍板）。
+- 新增用例已过**变异验证**（注入错误断言 ⇒ 红 `panicked`；恢复后逐字节一致）。
 - 依赖：T4-T6
 
 ### T9-2 🔄 真调对齐验证（Rust 版实际跑一轮完整创作——实证中）
@@ -136,6 +161,11 @@
 ### T9-3 ⬜ Mr2109终验（天天用的手感——UI/流程/等待点）
 - 验收：Mr2109实际用一轮完整创作——签字
 - 依赖：T9-2
+
+## 对齐缺口（待 Mr2109 拍板）
+
+- **章节标题/大纲不可编辑**：Web 版有 `update_chapter(sid, vol, no, title=, outline=)`，Rust 版没有对应 DB 方法与 UI 入口
+  （现状：章节 title/outline 只在生成时写入）。补实现 = 一个 DB 方法 + 章节树的编辑入口；不补 = Web 版此项能力不迁移。
 
 ## 里程碑
 - M1：T4-2 完成（引擎核心跑通——mock 走全 Block）
