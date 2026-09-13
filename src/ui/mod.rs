@@ -734,7 +734,7 @@ pub fn setup_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let mut loaded = false;
     for p in [
-        "~/Library/Fonts/PingFangSC.ttf",
+        // 公开仓不含任何用户家目录路径：只认系统字体位置（+ 运行目录 AssetData 动态扫描兜底）
         "/System/Library/Fonts/PingFang.ttc",
     ] {
         if std::path::Path::new(p).exists() {
